@@ -1,122 +1,271 @@
+
 import 'package:flutter/material.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(const AnjoNegroApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class AnjoNegroApp extends StatelessWidget {
+  const AnjoNegroApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      debugShowCheckedModeBanner: false,
+      title: 'Anjo Negro Gestão',
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: .fromSeed(seedColor: Colors.deepPurple),
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: const Color(0xFF0B0B0B),
+        fontFamily: 'Roboto',
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFFD4AF57),
+          brightness: Brightness.dark,
+        ),
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const LoginScreen(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _LoginScreenState extends State<LoginScreen> {
+  final emailController = TextEditingController();
+  final passwordController = TextEditingController();
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+  bool esconderSenha = true;
+
+  final dourado = const Color(0xFFD4AF57);
+
+  @override
+  void dispose() {
+    emailController.dispose();
+    passwordController.dispose();
+    super.dispose();
+  }
+
+  void entrar() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Tela inicial criada! A conexão com o Firebase será a próxima etapa.',
+        ),
+        backgroundColor: Color(0xFF806329),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: .center,
-          children: [
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 28,
+              vertical: 25,
             ),
-          ],
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const SizedBox(height: 20),
+
+                Container(
+                  width: 112,
+                  height: 112,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: dourado,
+                      width: 2,
+                    ),
+                    color: const Color(0xFF181818),
+                  ),
+                  child: Icon(
+                    Icons.content_cut,
+                    color: dourado,
+                    size: 55,
+                  ),
+                ),
+
+                const SizedBox(height: 25),
+
+                Text(
+                  'ANJO NEGRO',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: dourado,
+                    fontSize: 31,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 3,
+                  ),
+                ),
+
+                const SizedBox(height: 5),
+
+                Text(
+                  'GESTÃO',
+                  style: TextStyle(
+                    color: dourado,
+                    fontSize: 18,
+                    letterSpacing: 7,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                const Text(
+                  'SISTEMA DE GESTÃO DA BARBEARIA',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 10,
+                    letterSpacing: 2,
+                  ),
+                ),
+
+                const SizedBox(height: 48),
+
+                campo(
+                  titulo: 'E-MAIL',
+                  dica: 'Digite seu e-mail',
+                  icone: Icons.email_outlined,
+                  controller: emailController,
+                ),
+
+                const SizedBox(height: 22),
+
+                campo(
+                  titulo: 'SENHA',
+                  dica: 'Digite sua senha',
+                  icone: Icons.lock_outline,
+                  controller: passwordController,
+                  senha: true,
+                ),
+
+                const SizedBox(height: 35),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 55,
+                  child: ElevatedButton(
+                    onPressed: entrar,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: dourado,
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: const Text(
+                      'ENTRAR',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 2,
+                      ),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 45),
+
+                const Text(
+                  'ANJO NEGRO GESTÃO',
+                  style: TextStyle(
+                    color: Colors.white38,
+                    fontSize: 11,
+                    letterSpacing: 2,
+                  ),
+                ),
+
+                const SizedBox(height: 8),
+
+                Text(
+                  'Organização, controle e resultado.',
+                  style: TextStyle(
+                    color: dourado.withValues(alpha: 0.7),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ),
+    );
+  }
+
+  Widget campo({
+    required String titulo,
+    required String dica,
+    required IconData icone,
+    required TextEditingController controller,
+    bool senha = false,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          titulo,
+          style: TextStyle(
+            color: dourado,
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1.5,
+          ),
+        ),
+        const SizedBox(height: 9),
+        TextField(
+          controller: controller,
+          obscureText: senha && esconderSenha,
+          keyboardType: senha
+              ? TextInputType.text
+              : TextInputType.emailAddress,
+          style: const TextStyle(color: Colors.white),
+          decoration: InputDecoration(
+            hintText: dica,
+            hintStyle: const TextStyle(color: Colors.white38),
+            prefixIcon: Icon(icone, color: dourado),
+            suffixIcon: senha
+                ? IconButton(
+                    onPressed: () {
+                      setState(() {
+                        esconderSenha = !esconderSenha;
+                      });
+                    },
+                    icon: Icon(
+                      esconderSenha
+                          ? Icons.visibility_off
+                          : Icons.visibility,
+                      color: dourado,
+                    ),
+                  )
+                : null,
+            filled: true,
+            fillColor: const Color(0xFF181818),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(
+                color: Color(0xFF65502B),
+              ),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(
+                color: dourado,
+                width: 1.5,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
