@@ -6,7 +6,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
   await Firebase.initializeApp();
+
   runApp(const AnjoNegroApp());
 }
 
@@ -63,7 +65,9 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    setState(() => carregando = true);
+    setState(() {
+      carregando = true;
+    });
 
     try {
       final credencial = await FirebaseAuth.instance
@@ -81,10 +85,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (!cadastro.exists) {
         await FirebaseAuth.instance.signOut();
-        throw Exception('Cadastro do usuário não encontrado.');
+        throw Exception(
+          'Cadastro não encontrado no Firestore. UID: ${usuario.uid}',
+        );
       }
 
       final dados = cadastro.data()!;
+
       final ativo = dados['ativo'] == true;
 
       if (!ativo) {
@@ -103,27 +110,27 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
       );
+
     } on FirebaseAuthException catch (e) {
-      String mensagem = 'Não foi possível realizar o login.';
+      mostrarErro(
+        'ERRO FIREBASE: ${e.code}\n${e.message ?? "Sem detalhes adicionais."}',
+      );
 
-      if (e.code == 'invalid-credential' ||
-          e.code == 'wrong-password' ||
-          e.code == 'user-not-found') {
-        mensagem = 'E-mail ou senha incorretos.';
-      } else if (e.code == 'network-request-failed') {
-        mensagem = 'Verifique sua conexão com a internet.';
-      } else if (e.code == 'too-many-requests') {
-        mensagem = 'Muitas tentativas. Aguarde um pouco.';
-      }
+    } on FirebaseException catch (e) {
+      mostrarErro(
+        'ERRO FIRESTORE: ${e.code}\n${e.message ?? "Sem detalhes adicionais."}',
+      );
 
-      mostrarErro(mensagem);
     } catch (e) {
       mostrarErro(
-        e.toString().replaceFirst('Exception: ', ''),
+        'ERRO: ${e.toString().replaceFirst("Exception: ", "")}',
       );
+
     } finally {
       if (mounted) {
-        setState(() => carregando = false);
+        setState(() {
+          carregando = false;
+        });
       }
     }
   }
@@ -133,6 +140,7 @@ class _LoginScreenState extends State<LoginScreen> {
       SnackBar(
         content: Text(mensagem),
         backgroundColor: Colors.red.shade900,
+        duration: const Duration(seconds: 8),
       ),
     );
   }
@@ -151,12 +159,16 @@ class _LoginScreenState extends State<LoginScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const SizedBox(height: 20),
+
                 Container(
                   width: 112,
                   height: 112,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(color: dourado, width: 2),
+                    border: Border.all(
+                      color: dourado,
+                      width: 2,
+                    ),
                     color: const Color(0xFF181818),
                   ),
                   child: Icon(
@@ -165,9 +177,12 @@ class _LoginScreenState extends State<LoginScreen> {
                     size: 55,
                   ),
                 ),
+
                 const SizedBox(height: 25),
+
                 Text(
                   'ANJO NEGRO',
+                  textAlign: TextAlign.center,
                   style: TextStyle(
                     color: dourado,
                     fontSize: 31,
@@ -175,16 +190,21 @@ class _LoginScreenState extends State<LoginScreen> {
                     letterSpacing: 3,
                   ),
                 ),
+
                 const SizedBox(height: 5),
+
                 Text(
                   'GESTÃO',
                   style: TextStyle(
                     color: dourado,
                     fontSize: 18,
                     letterSpacing: 7,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
+
                 const SizedBox(height: 12),
+
                 const Text(
                   'SISTEMA DE GESTÃO DA BARBEARIA',
                   textAlign: TextAlign.center,
@@ -194,14 +214,18 @@ class _LoginScreenState extends State<LoginScreen> {
                     letterSpacing: 2,
                   ),
                 ),
+
                 const SizedBox(height: 48),
+
                 campo(
                   titulo: 'E-MAIL',
                   dica: 'Digite seu e-mail',
                   icone: Icons.email_outlined,
                   controller: emailController,
                 ),
+
                 const SizedBox(height: 22),
+
                 campo(
                   titulo: 'SENHA',
                   dica: 'Digite sua senha',
@@ -209,7 +233,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   controller: passwordController,
                   senha: true,
                 ),
+
                 const SizedBox(height: 35),
+
                 SizedBox(
                   width: double.infinity,
                   height: 55,
@@ -236,7 +262,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                   ),
                 ),
+
                 const SizedBox(height: 45),
+
                 const Text(
                   'ANJO NEGRO GESTÃO',
                   style: TextStyle(
@@ -245,7 +273,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     letterSpacing: 2,
                   ),
                 ),
+
                 const SizedBox(height: 8),
+
                 Text(
                   'Organização, controle e resultado.',
                   style: TextStyle(
@@ -280,18 +310,27 @@ class _LoginScreenState extends State<LoginScreen> {
             letterSpacing: 1.5,
           ),
         ),
+
         const SizedBox(height: 9),
+
         TextField(
           controller: controller,
           obscureText: senha && esconderSenha,
           keyboardType: senha
               ? TextInputType.text
               : TextInputType.emailAddress,
-          style: const TextStyle(color: Colors.white),
+          style: const TextStyle(
+            color: Colors.white,
+          ),
           decoration: InputDecoration(
             hintText: dica,
-            hintStyle: const TextStyle(color: Colors.white38),
-            prefixIcon: Icon(icone, color: dourado),
+            hintStyle: const TextStyle(
+              color: Colors.white38,
+            ),
+            prefixIcon: Icon(
+              icone,
+              color: dourado,
+            ),
             suffixIcon: senha
                 ? IconButton(
                     onPressed: () {
@@ -372,7 +411,9 @@ class PainelScreen extends StatelessWidget {
               size: 65,
               color: Color(0xFFD4AF57),
             ),
+
             const SizedBox(height: 20),
+
             const Text(
               'BEM-VINDO AO ANJO NEGRO',
               style: TextStyle(
@@ -381,14 +422,22 @@ class PainelScreen extends StatelessWidget {
                 fontWeight: FontWeight.bold,
               ),
             ),
+
             const SizedBox(height: 12),
+
             Text('Olá, $nome!'),
+
             const SizedBox(height: 8),
+
             Text('Perfil: $cargo'),
+
             const SizedBox(height: 30),
+
             const Text(
               'Painel inicial em construção.',
-              style: TextStyle(color: Colors.white54),
+              style: TextStyle(
+                color: Colors.white54,
+              ),
             ),
           ],
         ),
