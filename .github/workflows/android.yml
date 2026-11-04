@@ -1,10 +1,11 @@
+
 name: Preparar e compilar Anjo Negro Gestão
 
 on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -25,14 +26,8 @@ jobs:
         with:
           channel: stable
 
-      - name: Criar estrutura Flutter
-        run: |
-          flutter create --org com.anjonegro --project-name gestao .
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .
-          git commit -m "Criar estrutura inicial Flutter" || true
-          git push
+      - name: Verificar Flutter
+        run: flutter --version
 
       - name: Baixar dependências
         run: flutter pub get
@@ -45,3 +40,4 @@ jobs:
         with:
           name: anjo-negro-gestao-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+          
