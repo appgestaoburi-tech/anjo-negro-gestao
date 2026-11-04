@@ -45,6 +45,7 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
+      // ETAPA 1: AUTENTICAÇÃO
       final credencial = await FirebaseAuth.instance
           .signInWithEmailAndPassword(
         email: email.text.trim(),
@@ -58,29 +59,61 @@ class _LoginScreenState extends State<LoginScreen> {
 
       final caminho = 'usuarios/${usuario.uid}';
 
-      final documento = await firestore
-          .collection('usuarios')
-          .doc(usuario.uid)
-          .get(const GetOptions(source: Source.server));
+      // ETAPA 2: LEITURA DO DOCUMENTO INDIVIDUAL
+      String resultadoDocumento;
+      bool documentoExiste = false;
 
-      final quantidade = await firestore
-          .collection('usuarios')
-          .get(const GetOptions(source: Source.server));
+      try {
+        final documento = await firestore
+            .collection('usuarios')
+            .doc(usuario.uid)
+            .get(const GetOptions(source: Source.server));
 
+        documentoExiste = documento.exists;
+
+        resultadoDocumento = documentoExiste
+            ? 'DOCUMENTO INDIVIDUAL: ENCONTRADO'
+            : 'DOCUMENTO INDIVIDUAL: NÃO ENCONTRADO';
+
+        if (documentoExiste) {
+          resultadoDocumento +=
+              '\nDADOS: ${documento.data()}';
+        }
+      } on FirebaseException catch (e) {
+        resultadoDocumento =
+            'ERRO NA LEITURA INDIVIDUAL: ${e.code}\n${e.message}';
+      }
+
+      // ETAPA 3: LISTAGEM DA COLEÇÃO
+      String resultadoLista;
+
+      try {
+        final quantidade = await firestore
+            .collection('usuarios')
+            .get(const GetOptions(source: Source.server));
+
+        resultadoLista =
+            'LISTAGEM: PERMITIDA (${quantidade.docs.length} documentos)';
+      } on FirebaseException catch (e) {
+        resultadoLista =
+            'LISTAGEM BLOQUEADA: ${e.code}\n${e.message}';
+      }
+
+      // ETAPA 4: MOSTRAR RESULTADO
       final dados = StringBuffer();
 
       dados.writeln('AUTENTICAÇÃO: OK');
+      dados.writeln('');
       dados.writeln('PROJETO: ${app.options.projectId}');
       dados.writeln('APP: ${app.options.appId}');
       dados.writeln('BANCO: (default)');
+      dados.writeln('');
       dados.writeln('UID: ${usuario.uid}');
       dados.writeln('CAMINHO: $caminho');
-      dados.writeln('DOCUMENTO EXISTE: ${documento.exists}');
-      dados.writeln('DOCUMENTOS NA COLEÇÃO: ${quantidade.docs.length}');
-
-      if (documento.exists) {
-        dados.writeln('DADOS: ${documento.data()}');
-      }
+      dados.writeln('');
+      dados.writeln(resultadoDocumento);
+      dados.writeln('');
+      dados.writeln(resultadoLista);
 
       if (mounted) {
         setState(() {
@@ -88,11 +121,11 @@ class _LoginScreenState extends State<LoginScreen> {
         });
       }
     } on FirebaseAuthException catch (e) {
-      resultado = 'ERRO DE AUTENTICAÇÃO\n${e.code}\n${e.message}';
+      resultado =
+          'ERRO DE AUTENTICAÇÃO\n${e.code}\n${e.message}';
     } on FirebaseException catch (e) {
-      resultado = 'ERRO FIREBASE\n'
-          'CÓDIGO: ${e.code}\n'
-          'MENSAGEM: ${e.message}';
+      resultado =
+          'ERRO FIREBASE\nCÓDIGO: ${e.code}\nMENSAGEM: ${e.message}';
     } catch (e) {
       resultado = 'ERRO GERAL\n$e';
     } finally {
@@ -114,7 +147,9 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('ANJO NEGRO GESTÃO')),
+      appBar: AppBar(
+        title: const Text('ANJO NEGRO GESTÃO'),
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
