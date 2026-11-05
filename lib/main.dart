@@ -338,14 +338,32 @@ class _PerfilScreenState extends State<PerfilScreen> {
     }
 
     final dados = documento.data()!;
-    final ativo = dados['ativo'];
 
-    // DIAGNÓSTICO TEMPORÁRIO
+    // DIAGNÓSTICO DOS CAMPOS DO FIREBASE
+    String? campoAtivo;
+
+    for (final chave in dados.keys) {
+      if (chave.trim() == 'ativo') {
+        campoAtivo = chave;
+        break;
+      }
+    }
+
+    final ativo = campoAtivo == null
+        ? null
+        : dados[campoAtivo];
+
     if (ativo != true) {
+      final campos = dados.keys
+          .map((chave) => '"$chave"')
+          .join(', ');
+
       throw Exception(
-        'Acesso bloqueado. '
-        'Valor recebido: $ativo | '
-        'Tipo: ${ativo?.runtimeType ?? 'null'} | '
+        'ACESSO BLOQUEADO\n'
+        'Campo encontrado: "$campoAtivo"\n'
+        'Valor recebido: $ativo\n'
+        'Tipo: ${ativo?.runtimeType ?? 'null'}\n'
+        'Campos existentes: $campos\n'
         'UID: ${widget.user.uid}',
       );
     }
@@ -355,7 +373,11 @@ class _PerfilScreenState extends State<PerfilScreen> {
         .toLowerCase()
         .trim();
 
-    if (!['admin', 'administrador', 'colaborador'].contains(cargo)) {
+    if (![
+      'admin',
+      'administrador',
+      'colaborador'
+    ].contains(cargo)) {
       throw Exception('Seu perfil não possui um cargo válido.');
     }
 
@@ -414,7 +436,7 @@ class AcessoNegadoScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Center(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(28),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -435,7 +457,7 @@ class AcessoNegadoScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
-              Text(
+              SelectableText(
                 mensagem,
                 textAlign: TextAlign.center,
               ),
@@ -730,7 +752,8 @@ void abrirModulo(BuildContext context, String titulo) {
   Navigator.push(
     context,
     MaterialPageRoute(
-      builder: (context) => ModuloEmConstrucaoScreen(titulo: titulo),
+      builder: (context) =>
+          ModuloEmConstrucaoScreen(titulo: titulo),
     ),
   );
 }
