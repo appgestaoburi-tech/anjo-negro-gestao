@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -132,7 +131,6 @@ class _LoginScreenState extends State<LoginScreen> {
       carregando = true;
       erro = null;
     });
-
     try {
       await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: email,
@@ -309,7 +307,7 @@ class PerfilScreen extends StatefulWidget {
 }
 
 class _PerfilScreenState extends State<PerfilScreen> {
-  late Future<Map<String, dynamic>> perfilFuture;
+  late Future> perfilFuture;
 
   @override
   void initState() {
@@ -317,7 +315,7 @@ class _PerfilScreenState extends State<PerfilScreen> {
     perfilFuture = carregarPerfil();
   }
 
-  Future<Map<String, dynamic>> carregarPerfil() async {
+  Future> carregarPerfil() async {
     final documento = await FirebaseFirestore.instance
         .collection('usuarios')
         .doc(widget.user.uid)
@@ -328,7 +326,6 @@ class _PerfilScreenState extends State<PerfilScreen> {
     }
 
     final dados = documento.data()!;
-
     String? campoAtivo;
 
     for (final chave in dados.keys) {
@@ -364,7 +361,7 @@ class _PerfilScreenState extends State<PerfilScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<Map<String, dynamic>>(
+    return FutureBuilder>(
       future: perfilFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -457,6 +454,12 @@ class PainelScreen extends StatelessWidget {
     required this.cargo,
     required this.permissaoTotal,
   });
+
+  void abrirModulo(BuildContext context, String nomeModulo) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Módulo "$nomeModulo" em desenvolvimento.')),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -722,7 +725,7 @@ class ModuloCard extends StatelessWidget {
 // CATÁLOGO DE SERVIÇOS
 // ==================================================
 
-const List<Map<String, dynamic>> servicosIniciais = [
+const List> servicosIniciais = [
   {
     'nome': 'Corte Freestyle',
     'categoria': 'Principais',
@@ -841,13 +844,12 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
   bool preparando = false;
   String? erroPreparacao;
 
-  CollectionReference<Map<String, dynamic>> get colecao =>
+  CollectionReference> get colecao =>
       FirebaseFirestore.instance.collection('servicos');
 
   @override
   void initState() {
     super.initState();
-
     if (widget.permissaoTotal) {
       prepararCatalogoInicial();
     }
@@ -862,14 +864,19 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
     });
 
     try {
+      final uidUser = FirebaseAuth.instance.currentUser?.uid ?? 'desconhecido';
+      debugPrint('DEBUG - UID Autenticado: $uidUser');
+      debugPrint('DEBUG - Permissão Total do Admin: ${widget.permissaoTotal}');
+
       final existentes = await colecao.limit(1).get();
+      debugPrint('DEBUG - Consulta executada. Documentos encontrados: ${existentes.docs.length}');
 
       if (existentes.docs.isEmpty) {
+        debugPrint('DEBUG - Coleção vazia. Cadastrando os 15 serviços iniciais...');
         final lote = FirebaseFirestore.instance.batch();
 
         for (final servico in servicosIniciais) {
           final referencia = colecao.doc();
-
           lote.set(referencia, {
             ...servico,
             'ativo': true,
@@ -882,11 +889,16 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
         }
 
         await lote.commit();
+        debugPrint('DEBUG - 15 serviços cadastrados com sucesso no Firestore!');
       }
-    } catch (e) {
-      erroPreparacao =
-          'Não foi possível preparar o catálogo. Verifique as regras '
-          'de acesso do Firebase.';
+    } catch (e, stackTrace) {
+      debugPrint('ERRO REAL NO FIREBASE (CATÁLOGO): $e');
+      debugPrint('$stackTrace');
+      if (mounted) {
+        setState(() {
+          erroPreparacao = 'Erro detalhado do Firebase:\n$e';
+        });
+      }
     } finally {
       if (mounted) {
         setState(() => preparando = false);
@@ -918,10 +930,7 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
     }
   }
 
-  Future<void> alterarStatus(
-    String id,
-    bool ativo,
-  ) async {
+  Future<void> alterarStatus(String id, bool ativo) async {
     try {
       await colecao.doc(id).update({
         'ativo': !ativo,
@@ -929,7 +938,6 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Não foi possível alterar o serviço.'),
@@ -969,7 +977,7 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
                   SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'GESTÃO DO CATÁLOGO • ADMINISTRADOR',
+                                            'GESTÃO DO CATÁLOGO • ADMINISTRADOR',
                       style: TextStyle(
                         color: dourado,
                         fontWeight: FontWeight.bold,
@@ -1008,19 +1016,34 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
             ),
           ),
           if (preparando)
-            const LinearProgressIndicator(color: dourado),
+            const Padding(
+              padding: EdgeInsets.all(8.0),
+              child: LinearProgressIndicator(color: dourado),
+            ),
           if (erroPreparacao != null)
             Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(
-                erroPreparacao!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.redAccent),
+              padding: const EdgeInsets.all(16),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.redAccent),
+                ),
+                child: SelectableText(
+                  erroPreparacao!,
+                  style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+                ),
               ),
             ),
           Expanded(
-            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: colecao.orderBy('ordem').snapshots(),
+            child: StreamBuilder<QuerySnapshot>>(
+              stream: categoriaSelecionada == 'Todas'
+                  ? colecao.orderBy('ordem').snapshots()
+                  : colecao
+                      .where('categoria', isEqualTo: categoriaSelecionada)
+                      .orderBy('ordem')
+                      .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(
@@ -1029,13 +1052,13 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
                 }
 
                 if (snapshot.hasError) {
-                  return const Center(
+                  return Center(
                     child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Text(
-                        'Não foi possível carregar os serviços.\n'
-                        'Confira as regras de acesso do Firebase.',
+                      padding: const EdgeInsets.all(24),
+                      child: SelectableText(
+                        'Erro ao carregar serviços:\n${snapshot.error}',
                         textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.redAccent),
                       ),
                     ),
                   );
@@ -1043,126 +1066,93 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
 
                 final documentos = snapshot.data?.docs ?? [];
 
-                final filtrados = documentos.where((documento) {
-                  final dados = documento.data();
-                  final categoria = dados['categoria'] ?? '';
-                  final ativo = dados['ativo'] == true;
-
-                  if (!ativo) return false;
-
-                  return categoriaSelecionada == 'Todas' ||
-                      categoria == categoriaSelecionada;
-                }).toList();
-
-                if (filtrados.isEmpty) {
+                if (documentos.isEmpty) {
                   return const Center(
-                    child: Text('Nenhum serviço encontrado.'),
+                    child: Text(
+                      'Nenhum serviço cadastrado.',
+                      style: TextStyle(color: Colors.white54),
+                    ),
                   );
                 }
 
                 return ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-                  itemCount: filtrados.length,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: documentos.length,
                   itemBuilder: (context, index) {
-                    final documento = filtrados[index];
-                    final dados = documento.data();
-
-                    final nome = (dados['nome'] ?? '').toString();
-                    final categoria =
-                        (dados['categoria'] ?? '').toString();
-                    final preco = formatarPreco(dados['preco']);
-                    final aPartir = dados['tipoPreco'] == 'a_partir';
+                    final doc = documentos[index];
+                    final dados = doc.data();
+                    final id = doc.id;
+                    final nome = dados['nome'] ?? '';
+                    final categoria = dados['categoria'] ?? '';
+                    final preco = dados['preco'] ?? 0;
+                    final tipoPreco = dados['tipoPreco'] ?? 'fixo';
+                    final ativo = dados['ativo'] ?? true;
 
                     return Card(
                       color: cartao,
-                      margin: const EdgeInsets.only(bottom: 11),
+                      margin: const EdgeInsets.only(bottom: 12),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(13),
-                        side: const BorderSide(
-                          color: Color(0xFF3B3324),
-                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        side: const BorderSide(color: Color(0xFF3B3324)),
                       ),
                       child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 15,
-                          vertical: 8,
-                        ),
-                        leading: const CircleAvatar(
-                          backgroundColor: Color(0xFF302719),
-                          child: Icon(
-                            Icons.content_cut,
-                            color: dourado,
-                          ),
-                        ),
+                        contentPadding: const EdgeInsets.all(12),
                         title: Text(
                           nome,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: ativo ? Colors.white : Colors.white38,
                           ),
                         ),
-                        subtitle: Text(
-                          categoria,
-                          style: const TextStyle(
-                            color: Colors.white54,
-                          ),
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Text(
-                                  'R\$ $preco',
-                                  style: const TextStyle(
-                                    color: dourado,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                                if (aPartir)
-                                  const Text(
-                                    'A partir de',
-                                    style: TextStyle(
-                                      color: Colors.white54,
-                                      fontSize: 10,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                            if (widget.permissaoTotal)
-                              PopupMenuButton<String>(
-                                icon: const Icon(
-                                  Icons.more_vert,
-                                  color: Colors.white70,
-                                ),
-                                onSelected: (opcao) {
-                                  if (opcao == 'editar') {
-                                    abrirFormulario(
-                                      id: documento.id,
-                                      dados: dados,
-                                    );
-                                  } else if (opcao == 'desativar') {
-                                    alterarStatus(
-                                      documento.id,
-                                      dados['ativo'] == true,
-                                    );
-                                  }
-                                },
-                                itemBuilder: (_) => const [
-                                  PopupMenuItem(
-                                    value: 'editar',
-                                    child: Text('Editar serviço'),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'desativar',
-                                    child: Text('Desativar serviço'),
-                                  ),
-                                ],
+                            const SizedBox(height: 6),
+                            Text(
+                              'Categoria: $categoria',
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 13,
                               ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'R\$ ${formatarPreco(preco)}${tipoPreco == 'a_partir' ? ' a partir' : ''}',
+                              style: const TextStyle(
+                                color: dourado,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                            ),
                           ],
                         ),
+                        trailing: widget.permissaoTotal
+                            ? Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: Icon(
+                                      ativo
+                                          ? Icons.visibility
+                                          : Icons.visibility_off,
+                                      color: ativo ? dourado : Colors.white38,
+                                    ),
+                                    tooltip: ativo ? 'Desativar' : 'Ativar',
+                                    onPressed: () =>
+                                        alterarStatus(id, ativo),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.edit, color: Colors.white70),
+                                    tooltip: 'Editar',
+                                    onPressed: () => abrirFormulario(
+                                      id: id,
+                                      dados: dados,
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : null,
                       ),
                     );
                   },
@@ -1172,61 +1162,48 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
           ),
         ],
       ),
-      floatingActionButton: widget.permissaoTotal
-          ? FloatingActionButton.extended(
-              backgroundColor: dourado,
-              foregroundColor: Colors.black,
-              onPressed: () => abrirFormulario(),
-              icon: const Icon(Icons.add),
-              label: const Text('NOVO SERVIÇO'),
-            )
-          : null,
     );
   }
 }
 
 // ==================================================
-// FORMULÁRIO DE CADASTRO E EDIÇÃO
+// DIALOG DE FORMULÁRIO DE SERVIÇO
 // ==================================================
 
 class FormularioServicoDialog extends StatefulWidget {
   final String? id;
   final Map<String, dynamic>? dados;
 
-  const FormularioServicoDialog({
-    super.key,
-    this.id,
-    this.dados,
-  });
+  const FormularioServicoDialog({super.key, this.id, this.dados});
 
   @override
   State<FormularioServicoDialog> createState() =>
       _FormularioServicoDialogState();
 }
 
-class _FormularioServicoDialogState
-    extends State<FormularioServicoDialog> {
-  final nomeController = TextEditingController();
-  final precoController = TextEditingController();
-  final descricaoController = TextEditingController();
-
-  String categoria = 'Principais';
-  String tipoPreco = 'fixo';
+class _FormularioServicoDialogState extends State<FormularioServicoDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late TextEditingController nomeController;
+  late TextEditingController precoController;
+  String categoriaSelecionada = 'Principais';
+  String tipoPrecoSelecionado = 'fixo';
   bool salvando = false;
 
   @override
   void initState() {
     super.initState();
-
-    final dados = widget.dados;
-
-    if (dados != null) {
-      nomeController.text = (dados['nome'] ?? '').toString();
-      precoController.text = (dados['preco'] ?? '').toString();
-      descricaoController.text =
-          (dados['descricao'] ?? '').toString();
-      categoria = (dados['categoria'] ?? 'Principais').toString();
-      tipoPreco = (dados['tipoPreco'] ?? 'fixo').toString();
+    nomeController = TextEditingController(text: widget.dados?['nome'] ?? '');
+    precoController = TextEditingController(
+      text: widget.dados?['preco'] != null
+          ? widget.dados!['preco'].toString()
+          : '',
+    );
+    if (widget.dados?['categoria'] != null &&
+        categoriasServicos.contains(widget.dados!['categoria'])) {
+      categoriaSelecionada = widget.dados!['categoria'];
+    }
+    if (widget.dados?['tipoPreco'] != null) {
+      tipoPrecoSelecionado = widget.dados!['tipoPreco'];
     }
   }
 
@@ -1234,58 +1211,51 @@ class _FormularioServicoDialogState
   void dispose() {
     nomeController.dispose();
     precoController.dispose();
-    descricaoController.dispose();
     super.dispose();
   }
+  
 
   Future<void> salvar() async {
-    final nome = nomeController.text.trim();
-    final precoTexto = precoController.text.trim().replaceAll(',', '.');
-    final preco = double.tryParse(precoTexto);
-
-    if (nome.isEmpty || preco == null || preco <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Informe o nome e um preço válido.'),
-        ),
-      );
-      return;
-    }
+    if (!_formKey.currentState!.validate()) return;
 
     setState(() => salvando = true);
 
     try {
-      final colecao =
-          FirebaseFirestore.instance.collection('servicos');
-
-      final dados = <String, dynamic>{
-        'nome': nome,
-        'categoria': categoria,
-        'preco': preco,
-        'tipoPreco': tipoPreco,
-        'descricao': descricaoController.text.trim(),
-        'ativo': widget.dados?['ativo'] ?? true,
-        'imagemUrl': widget.dados?['imagemUrl'] ?? '',
-        'atualizadoEm': FieldValue.serverTimestamp(),
-      };
+      final preco = double.tryParse(
+            precoController.text.replaceAll(',', '.'),
+          ) ??
+          0.0;
+      final colecao = FirebaseFirestore.instance.collection('servicos');
 
       if (widget.id == null) {
-        dados['ordem'] = DateTime.now().millisecondsSinceEpoch;
-        dados['criadoEm'] = FieldValue.serverTimestamp();
-        await colecao.add(dados);
+        final totalDocs = await colecao.get();
+        await colecao.add({
+          'nome': nomeController.text.trim(),
+          'categoria': categoriaSelecionada,
+          'preco': preco,
+          'tipoPreco': tipoPrecoSelecionado,
+          'ativo': true,
+          'descricao': '',
+          'imagemUrl': '',
+          'ordem': totalDocs.docs.length,
+          'criadoEm': FieldValue.serverTimestamp(),
+          'atualizadoEm': FieldValue.serverTimestamp(),
+        });
       } else {
-        await colecao.doc(widget.id).update(dados);
+        await colecao.doc(widget.id).update({
+          'nome': nomeController.text.trim(),
+          'categoria': categoriaSelecionada,
+          'preco': preco,
+          'tipoPreco': tipoPrecoSelecionado,
+          'atualizadoEm': FieldValue.serverTimestamp(),
+        });
       }
 
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Não foi possível salvar. Confira as permissões do Firebase.',
-            ),
-          ),
+          SnackBar(content: Text('Erro ao salvar serviço: $e')),
         );
       }
     } finally {
@@ -1298,85 +1268,66 @@ class _FormularioServicoDialogState
     return AlertDialog(
       backgroundColor: cartao,
       title: Text(
-        widget.id == null ? 'Novo serviço' : 'Editar serviço',
+        widget.id == null ? 'Novo Serviço' : 'Editar Serviço',
         style: const TextStyle(color: dourado),
       ),
       content: SingleChildScrollView(
-        child: SizedBox(
-          width: 400,
+        child: Form(
+          key: _formKey,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(
+              TextFormField(
                 controller: nomeController,
-                decoration: const InputDecoration(
-                  labelText: 'Nome do serviço',
-                  prefixIcon: Icon(Icons.content_cut),
-                ),
+                decoration: const InputDecoration(labelText: 'Nome do serviço'),
+                validator: (v) =>
+                    v == null || v.trim().isEmpty ? 'Informe o nome' : null,
               ),
-              const SizedBox(height: 13),
+              const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: categoria,
-                decoration: const InputDecoration(
-                  labelText: 'Categoria',
-                ),
-                items: categoriasServicos.map((item) {
-                  return DropdownMenuItem(
-                    value: item,
-                    child: Text(item),
-                  );
-                }).toList(),
-                onChanged: (valor) {
-                  if (valor != null) setState(() => categoria = valor);
-                },
+                value: categoriaSelecionada,
+                decoration: const InputDecoration(labelText: 'Categoria'),
+                items: categoriasServicos
+                    .map(
+                      (cat) => DropdownMenuItem(
+                        value: cat,
+                        child: Text(cat),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (v) =>
+                    setState(() => categoriaSelecionada = v ?? 'Principais'),
               ),
-              const SizedBox(height: 13),
-              TextField(
+              const SizedBox(height: 16),
+              TextFormField(
                 controller: precoController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
                 decoration: const InputDecoration(
                   labelText: 'Preço (R\$)',
-                  prefixIcon: Icon(Icons.attach_money),
+                  prefixText: 'R\$ ',
                 ),
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) return 'Informe o preço';
+                  if (double.tryParse(v.replaceAll(',', '.')) == null) {
+                    return 'Valor inválido';
+                  }
+                  return null;
+                },
               ),
-              const SizedBox(height: 13),
+              const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: tipoPreco,
-                decoration: const InputDecoration(
-                  labelText: 'Tipo de preço',
-                ),
+                value: tipoPrecoSelecionado,
+                decoration: const InputDecoration(labelText: 'Tipo de Preço'),
                 items: const [
-                  DropdownMenuItem(
-                    value: 'fixo',
-                    child: Text('Preço fixo'),
-                  ),
+                  DropdownMenuItem(value: 'fixo', child: Text('Preço Fixo')),
                   DropdownMenuItem(
                     value: 'a_partir',
                     child: Text('A partir de'),
                   ),
                 ],
-                onChanged: (valor) {
-                  if (valor != null) setState(() => tipoPreco = valor);
-                },
-              ),
-              const SizedBox(height: 13),
-              TextField(
-                controller: descricaoController,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Descrição (opcional)',
-                  prefixIcon: Icon(Icons.description_outlined),
-                ),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'A inclusão de fotos será habilitada em uma próxima etapa.',
-                style: TextStyle(
-                  color: Colors.white54,
-                  fontSize: 11,
-                ),
+                onChanged: (v) =>
+                    setState(() => tipoPrecoSelecionado = v ?? 'fixo'),
               ),
             ],
           ),
@@ -1384,92 +1335,24 @@ class _FormularioServicoDialogState
       ),
       actions: [
         TextButton(
-          onPressed: salvando
-              ? null
-              : () => Navigator.pop(context),
-          child: const Text('CANCELAR'),
+          onPressed: salvando ? null : () => Navigator.pop(context),
+          child: const Text('CANCELAR', style: TextStyle(color: Colors.white70)),
         ),
         ElevatedButton(
-          onPressed: salvando ? null : salvar,
           style: ElevatedButton.styleFrom(
             backgroundColor: dourado,
             foregroundColor: Colors.black,
           ),
+          onPressed: salvando ? null : salvar,
           child: salvando
               ? const SizedBox(
-                  height: 18,
                   width: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.black,
-                  ),
-                )
-              : const Text('SALVAR'),
+                  height: 18,
+                  child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2),
+                ),
+              : const Text('SALVAR', style: TextStyle(fontWeight: FontWeight.bold)),
         ),
       ],
-    );
-  }
-}
-
-// ==================================================
-// MÓDULOS PROVISÓRIOS
-// ==================================================
-
-void abrirModulo(BuildContext context, String titulo) {
-  Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (context) => ModuloEmConstrucaoScreen(titulo: titulo),
-    ),
-  );
-}
-
-class ModuloEmConstrucaoScreen extends StatelessWidget {
-  final String titulo;
-
-  const ModuloEmConstrucaoScreen({
-    super.key,
-    required this.titulo,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(titulo)),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(25),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(
-                Icons.construction,
-                color: dourado,
-                size: 65,
-              ),
-              const SizedBox(height: 20),
-              Text(
-                titulo,
-                style: const TextStyle(
-                  color: dourado,
-                  fontSize: 23,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Este módulo será disponibilizado '
-                'nas próximas etapas do Anjo Negro Gestão.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 15,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }
