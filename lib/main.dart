@@ -25,7 +25,7 @@ class AnjoNegroApp extends StatelessWidget {
       theme: ThemeData(
         brightness: Brightness.dark,
         scaffoldBackgroundColor: fundo,
-        colorScheme: ColorScheme.dark(
+        colorScheme: const ColorScheme.dark(
           primary: dourado,
           secondary: dourado,
           surface: cartao,
@@ -338,12 +338,22 @@ class _PerfilScreenState extends State<PerfilScreen> {
     }
 
     final dados = documento.data()!;
+    final ativo = dados['ativo'];
 
-    if (dados['ativo'] != true) {
-      throw Exception('Seu acesso está desativado.');
+    // DIAGNÓSTICO TEMPORÁRIO
+    if (ativo != true) {
+      throw Exception(
+        'Acesso bloqueado. '
+        'Valor recebido: $ativo | '
+        'Tipo: ${ativo?.runtimeType ?? 'null'} | '
+        'UID: ${widget.user.uid}',
+      );
     }
 
-    final cargo = (dados['cargo'] ?? '').toString().toLowerCase();
+    final cargo = (dados['cargo'] ?? '')
+        .toString()
+        .toLowerCase()
+        .trim();
 
     if (!['admin', 'administrador', 'colaborador'].contains(cargo)) {
       throw Exception('Seu perfil não possui um cargo válido.');
@@ -370,10 +380,20 @@ class _PerfilScreenState extends State<PerfilScreen> {
           );
         }
 
+        if (!snapshot.hasData) {
+          return const AcessoNegadoScreen(
+            mensagem: 'Não foi possível carregar seu cadastro.',
+          );
+        }
+
         final dados = snapshot.data!;
+
         return PainelScreen(
           nome: (dados['nome'] ?? 'Usuário').toString(),
-          cargo: (dados['cargo'] ?? '').toString().toLowerCase(),
+          cargo: (dados['cargo'] ?? '')
+              .toString()
+              .toLowerCase()
+              .trim(),
           permissaoTotal: dados['permissaoTotal'] == true,
         );
       },
@@ -451,7 +471,8 @@ class PainelScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final primeiroNome = nome.trim().split(' ').first;
-    final administrador = cargo == 'admin' || cargo == 'administrador';
+    final administrador =
+        cargo == 'admin' || cargo == 'administrador';
 
     return Scaffold(
       appBar: AppBar(
@@ -487,7 +508,10 @@ class PainelScreen extends StatelessWidget {
               const SizedBox(height: 5),
               Text(
                 administrador ? 'Administrador' : 'Colaborador',
-                style: const TextStyle(color: dourado, fontSize: 14),
+                style: const TextStyle(
+                  color: dourado,
+                  fontSize: 14,
+                ),
               ),
               const SizedBox(height: 25),
               const TextoSecao(titulo: 'VISÃO GERAL'),
@@ -672,6 +696,7 @@ class ModuloCard extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(15),
       child: Container(
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: cartao,
           borderRadius: BorderRadius.circular(15),
@@ -680,14 +705,14 @@ class ModuloCard extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icone, color: dourado, size: 34),
+            Icon(icone, color: dourado, size: 32),
             const SizedBox(height: 12),
             Text(
               titulo,
               textAlign: TextAlign.center,
               style: const TextStyle(
+                color: Colors.white,
                 fontWeight: FontWeight.bold,
-                fontSize: 13,
               ),
             ),
           ],
@@ -698,16 +723,14 @@ class ModuloCard extends StatelessWidget {
 }
 
 // ==================================================
-// NAVEGAÇÃO DOS MÓDULOS
+// ABERTURA DOS MÓDULOS
 // ==================================================
 
 void abrirModulo(BuildContext context, String titulo) {
   Navigator.push(
     context,
     MaterialPageRoute(
-      builder: (context) => ModuloEmConstrucaoScreen(
-        titulo: titulo,
-      ),
+      builder: (context) => ModuloEmConstrucaoScreen(titulo: titulo),
     ),
   );
 }
@@ -728,14 +751,14 @@ class ModuloEmConstrucaoScreen extends StatelessWidget {
       ),
       body: Center(
         child: Padding(
-          padding: const EdgeInsets.all(28),
+          padding: const EdgeInsets.all(25),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Icon(
                 Icons.construction,
-                size: 65,
                 color: dourado,
+                size: 65,
               ),
               const SizedBox(height: 20),
               Text(
@@ -748,10 +771,13 @@ class ModuloEmConstrucaoScreen extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               const Text(
-                'Este módulo está em desenvolvimento. '
-                'Em breve estará disponível no Anjo Negro Gestão.',
+                'Este módulo será disponibilizado '
+                'nas próximas etapas do Anjo Negro Gestão.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white70),
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 15,
+                ),
               ),
             ],
           ),
