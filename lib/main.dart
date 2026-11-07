@@ -1062,10 +1062,21 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
                 }).toList();
 
                 if (filtrados.isEmpty) {
-                  return const Center(
-                    child: Text('Nenhum serviço encontrado.'),
-                  );
-                }
+  return Center(
+    child: Padding(
+      padding: const EdgeInsets.all(20),
+      child: SelectableText(
+        'DIAGNÓSTICO DO CATÁLOGO\n\n'
+        'Documentos recebidos: ${documentos.length}\n'
+        'Serviços após o filtro: ${filtrados.length}\n'
+        'Categoria selecionada: $categoriaSelecionada\n\n'
+        'Dados recebidos:\n'
+        '${documentos.map((d) => d.data().toString()).join('\n\n')}',
+        textAlign: TextAlign.center,
+      ),
+    ),
+  );
+}
 
                 return ListView.builder(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
