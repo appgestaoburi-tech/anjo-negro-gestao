@@ -1021,7 +1021,7 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
             ),
           Expanded(
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: colecao.orderBy('ordem').snapshots(),
+              stream: colecao.snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(
