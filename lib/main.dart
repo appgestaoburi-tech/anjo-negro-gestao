@@ -1019,71 +1019,84 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
                 style: const TextStyle(color: Colors.redAccent),
               ),
             ),
-          Expanded(
-            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: colecao.snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(color: dourado),
-                  );
-                }
+          
+Expanded(
+  child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+    stream: colecao.snapshots(),
+    builder: (context, snapshot) {
+      if (snapshot.connectionState == ConnectionState.waiting) {
+        return const Center(
+          child: CircularProgressIndicator(color: dourado),
+        );
+      }
 
-                if (snapshot.hasError) {
-                  debugPrint('ERRO AO CARREGAR CATALOGO: ${snapshot.error}');
+      if (snapshot.hasError) {
+        debugPrint('ERRO AO CARREGAR CATALOGO: ${snapshot.error}');
 
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: SelectableText(
-                        'ERRO REAL AO CARREGAR OS SERVIÇOS:\n\n'
-                        '${snapshot.error}',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.redAccent,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
-                  );
-                }
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: SelectableText(
+              'ERRO REAL AO CARREGAR OS SERVIÇOS:\n\n'
+              '${snapshot.error}',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.redAccent,
+                fontSize: 14,
+              ),
+            ),
+          ),
+        );
+      }
 
-                final documentos = snapshot.data?.docs ?? [];
+      final documentos = snapshot.data?.docs ?? [];
 
-                final filtrados = documentos.where((documento) {
-                  final dados = documento.data();
-                  final categoria = dados['categoria'] ?? '';
-                  final ativo = dados['ativo'] == true;
+      final filtrados = documentos.where((documento) {
+        final dados = documento.data();
+        final categoria = dados['categoria'] ?? '';
+        final ativo = dados['ativo'] == true;
 
-                  if (!ativo) return false;
+        if (!ativo) return false;
 
-                  return categoriaSelecionada == 'Todas' ||
-                      categoria == categoriaSelecionada;
-                filtrados.sort((a, b) {
-  final ordemA = (a.data()['ordem'] as num?)?.toInt() ?? 0;
-  final ordemB = (b.data()['ordem'] as num?)?.toInt() ?? 0;
+        return categoriaSelecionada == 'Todas' ||
+            categoria == categoriaSelecionada;
+      }).toList();
 
-  return ordemA.compareTo(ordemB);
-});
+      filtrados.sort((a, b) {
+        final ordemA = (a.data()['ordem'] as num?)?.toInt() ?? 0;
+        final ordemB = (b.data()['ordem'] as num?)?.toInt() ?? 0;
+        return ordemA.compareTo(ordemB);
+      });
 
-                if (filtrados.isEmpty) {
-  return Center(
-    child: Padding(
-      padding: const EdgeInsets.all(20),
-      child: SelectableText(
-        'DIAGNÓSTICO DO CATÁLOGO\n\n'
-        'Documentos recebidos: ${documentos.length}\n'
-        'Serviços após o filtro: ${filtrados.length}\n'
-        'Categoria selecionada: $categoriaSelecionada\n\n'
-        'Dados recebidos:\n'
-        '${documentos.map((d) => d.data().toString()).join('\n\n')}',
-        textAlign: TextAlign.center,
-      ),
-    ),
-  );
-}
+      if (filtrados.isEmpty) {
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: SelectableText(
+              'DIAGNÓSTICO DO CATÁLOGO\n\n'
+              'Documentos recebidos: ${documentos.length}\n'
+              'Serviços após o filtro: ${filtrados.length}\n'
+              'Categoria selecionada: $categoriaSelecionada\n\n'
+              'Dados recebidos:\n'
+              '${documentos.map((d) => d.data().toString()).join('\n\n')}',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        );
+      }
 
-                return ListView.builder(
+      return ListView.builder(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+        itemCount: filtrados.length,
+        itemBuilder: (context, index) {
+          final documento = filtrados[index];
+          final dados = documento.data();
+
+          final nome = (dados['nome'] ?? '').toString();
+          final categoria = (dados['categoria'] ?? '').toString();
+          final preco = formatarPreco(dados['preco']);
+          final aPartir = dados['tipoPreco'] == 'a_partir';
+
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
                   itemCount: filtrados.length,
                   itemBuilder: (context, index) {
