@@ -1059,7 +1059,12 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
 
                   return categoriaSelecionada == 'Todas' ||
                       categoria == categoriaSelecionada;
-                }).toList();
+                filtrados.sort((a, b) {
+  final ordemA = (a.data()['ordem'] as num?)?.toInt() ?? 0;
+  final ordemB = (b.data()['ordem'] as num?)?.toInt() ?? 0;
+
+  return ordemA.compareTo(ordemB);
+});
 
                 if (filtrados.isEmpty) {
   return Center(
