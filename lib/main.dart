@@ -863,25 +863,41 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
     });
 
     try {
-      final existentes = await colecao.limit(1).get();
+      // Busca os serviços já cadastrados para não duplicá-los.
+      final existentes = await colecao.get();
+      final nomesExistentes = existentes.docs
+          .map((doc) => (doc.data()['nome'] ?? '').toString().trim())
+          .where((nome) => nome.isNotEmpty)
+          .toSet();
 
-      if (existentes.docs.isEmpty) {
-        final lote = FirebaseFirestore.instance.batch();
+      final lote = FirebaseFirestore.instance.batch();
+      var quantidadeNovos = 0;
 
-        for (final servico in servicosIniciais) {
-          final referencia = colecao.doc();
+      for (var i = 0; i < servicosIniciais.length; i++) {
+        final servico = servicosIniciais[i];
+        final nome = (servico['nome'] ?? '').toString().trim();
 
-          lote.set(referencia, {
-            ...servico,
-            'ativo': true,
-            'descricao': '',
-            'imagemUrl': '',
-            'ordem': servicosIniciais.indexOf(servico),
-            'criadoEm': FieldValue.serverTimestamp(),
-            'atualizadoEm': FieldValue.serverTimestamp(),
-          });
+        if (nome.isEmpty || nomesExistentes.contains(nome)) {
+          continue;
         }
 
+        final referencia = colecao.doc();
+
+        lote.set(referencia, {
+          ...servico,
+          'ativo': true,
+          'descricao': '',
+          'imagemUrl': '',
+          'ordem': i,
+          'criadoEm': FieldValue.serverTimestamp(),
+          'atualizadoEm': FieldValue.serverTimestamp(),
+        });
+
+        nomesExistentes.add(nome);
+        quantidadeNovos++;
+      }
+
+      if (quantidadeNovos > 0) {
         await lote.commit();
       }
     } catch (e) {
@@ -1021,95 +1037,76 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
             ),
           
 Expanded(
-  child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-    stream: colecao.snapshots(),
-    builder: (context, snapshot) {
-      if (snapshot.connectionState == ConnectionState.waiting) {
-        return const Center(
-          child: CircularProgressIndicator(color: dourado),
-        );
-      }
+              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: colecao.snapshots(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(
+                      child: CircularProgressIndicator(color: dourado),
+                    );
+                  }
 
-      if (snapshot.hasError) {
-        debugPrint('ERRO AO CARREGAR CATALOGO: ${snapshot.error}');
+                  if (snapshot.hasError) {
+                    debugPrint('ERRO AO CARREGAR CATALOGO: ${snapshot.error}');
 
-        return Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: SelectableText(
-              'ERRO REAL AO CARREGAR OS SERVIÇOS:\n\n'
-              '${snapshot.error}',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.redAccent,
-                fontSize: 14,
-              ),
-            ),
-          ),
-        );
-      }
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: SelectableText(
+                          'ERRO REAL AO CARREGAR OS SERVIÇOS:\n\n'
+                          '${snapshot.error}',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.redAccent,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    );
+                  }
 
-      final documentos = snapshot.data?.docs ?? [];
+                  final documentos = snapshot.data?.docs ?? [];
 
-      final filtrados = documentos.where((documento) {
-        final dados = documento.data();
-        final categoria = dados['categoria'] ?? '';
-        final ativo = dados['ativo'] == true;
-
-        if (!ativo) return false;
-
-        return categoriaSelecionada == 'Todas' ||
-            categoria == categoriaSelecionada;
-      }).toList();
-
-      filtrados.sort((a, b) {
-        final ordemA = (a.data()['ordem'] as num?)?.toInt() ?? 0;
-        final ordemB = (b.data()['ordem'] as num?)?.toInt() ?? 0;
-        return ordemA.compareTo(ordemB);
-      });
-
-      if (filtrados.isEmpty) {
-        return Center(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: SelectableText(
-              'DIAGNÓSTICO DO CATÁLOGO\n\n'
-              'Documentos recebidos: ${documentos.length}\n'
-              'Serviços após o filtro: ${filtrados.length}\n'
-              'Categoria selecionada: $categoriaSelecionada\n\n'
-              'Dados recebidos:\n'
-              '${documentos.map((d) => d.data().toString()).join('\n\n')}',
-              textAlign: TextAlign.center,
-            ),
-          ),
-        );
-      }
-
-      return ListView.builder(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-        itemCount: filtrados.length,
-        itemBuilder: (context, index) {
-          final documento = filtrados[index];
-          final dados = documento.data();
-
-          final nome = (dados['nome'] ?? '').toString();
-          final categoria = (dados['categoria'] ?? '').toString();
-          final preco = formatarPreco(dados['preco']);
-          final aPartir = dados['tipoPreco'] == 'a_partir';
-
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-                  itemCount: filtrados.length,
-                  itemBuilder: (context, index) {
-                    final documento = filtrados[index];
+                  final filtrados = documentos.where((documento) {
                     final dados = documento.data();
+                    final categoria = dados['categoria'] ?? '';
+                    final ativo = dados['ativo'] == true;
 
-                    final nome = (dados['nome'] ?? '').toString();
-                    final categoria =
-                        (dados['categoria'] ?? '').toString();
-                    final preco = formatarPreco(dados['preco']);
-                    final aPartir = dados['tipoPreco'] == 'a_partir';
+                    if (!ativo) return false;
 
-                    return Card(
+                    return categoriaSelecionada == 'Todas' ||
+                        categoria == categoriaSelecionada;
+                  }).toList();
+
+                  // A ordenação é feita no aplicativo, sem orderBy no Firestore.
+                  filtrados.sort((a, b) {
+                    final ordemA =
+                        (a.data()['ordem'] as num?)?.toInt() ?? 0;
+                    final ordemB =
+                        (b.data()['ordem'] as num?)?.toInt() ?? 0;
+                    return ordemA.compareTo(ordemB);
+                  });
+
+                  if (filtrados.isEmpty) {
+                    return const Center(
+                      child: Text('Nenhum serviço encontrado.'),
+                    );
+                  }
+
+                  return ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                    itemCount: filtrados.length,
+                    itemBuilder: (context, index) {
+                      final documento = filtrados[index];
+                      final dados = documento.data();
+
+                      final nome = (dados['nome'] ?? '').toString();
+                      final categoria =
+                          (dados['categoria'] ?? '').toString();
+                      final preco = formatarPreco(dados['preco']);
+                      final aPartir = dados['tipoPreco'] == 'a_partir';
+
+                      return Card(
                       color: cartao,
                       margin: const EdgeInsets.only(bottom: 11),
                       shape: RoundedRectangleBorder(
