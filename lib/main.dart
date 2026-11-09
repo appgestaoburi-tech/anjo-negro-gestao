@@ -854,64 +854,73 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
     }
   }
 
-  Future<void> prepararCatalogoInicial() async {
-    if (preparando) return;
 
-    setState(() {
-      preparando = true;
-      erroPreparacao = null;
-    });
+Future<void> prepararCatalogoInicial() async {
+  if (preparando) return;
 
-    try {
-      // Busca os serviços já cadastrados para não duplicá-los.
-      final existentes = await colecao.get();
-      final nomesExistentes = existentes.docs
-          .map((doc) => (doc.data()['nome'] ?? '').toString().trim())
-          .where((nome) => nome.isNotEmpty)
-          .toSet();
+  setState(() {
+    preparando = true;
+    erroPreparacao = null;
+  });
 
-      final lote = FirebaseFirestore.instance.batch();
-      var quantidadeNovos = 0;
+  try {
+    final existentes = await colecao.get();
 
-      for (var i = 0; i < servicosIniciais.length; i++) {
-        final servico = servicosIniciais[i];
-        final nome = (servico['nome'] ?? '').toString().trim();
+    final nomesExistentes = existentes.docs.map((doc) {
+      final dados = doc.data();
+      final nome = (dados['nome'] ?? '').toString().trim();
+      final categoria = (dados['categoria'] ?? '').toString().trim();
 
-        if (nome.isEmpty || nomesExistentes.contains(nome)) {
-          continue;
-        }
+      return '$categoria::$nome';
+    }).toSet();
 
-        final referencia = colecao.doc();
+    final lote = FirebaseFirestore.instance.batch();
+    int quantidadeAdicionada = 0;
 
-        lote.set(referencia, {
-          ...servico,
-          'ativo': true,
-          'descricao': '',
-          'imagemUrl': '',
-          'ordem': i,
-          'criadoEm': FieldValue.serverTimestamp(),
-          'atualizadoEm': FieldValue.serverTimestamp(),
-        });
+    for (int i = 0; i < servicosIniciais.length; i++) {
+      final servico = servicosIniciais[i];
 
-        nomesExistentes.add(nome);
-        quantidadeNovos++;
+      final chave =
+          '${servico['categoria']}::${servico['nome']}';
+
+      if (nomesExistentes.contains(chave)) {
+        continue;
       }
 
-      if (quantidadeNovos > 0) {
-        await lote.commit();
-      }
-    } catch (e) {
-      erroPreparacao =
-          'Não foi possível preparar o catálogo. Verifique as regras '
-          'de acesso do Firebase.';
-    } finally {
-      if (mounted) {
-        setState(() => preparando = false);
-      }
+      final referencia = colecao.doc();
+
+      lote.set(referencia, {
+        ...servico,
+        'ativo': true,
+        'descricao': '',
+        'imagemUrl': '',
+        'ordem': i,
+        'criadoEm': FieldValue.serverTimestamp(),
+        'atualizadoEm': FieldValue.serverTimestamp(),
+      });
+
+      quantidadeAdicionada++;
+    }
+
+    if (quantidadeAdicionada > 0) {
+      await lote.commit();
+    }
+
+    debugPrint(
+      'CATÁLOGO: $quantidadeAdicionada serviços adicionados.',
+    );
+
+  } catch (e) {
+    erroPreparacao =
+        'Erro ao preparar catálogo: $e';
+    debugPrint('ERRO NA PREPARAÇÃO DO CATÁLOGO: $e');
+  } finally {
+    if (mounted) {
+      setState(() => preparando = false);
     }
   }
+}
 
-  String formatarPreco(dynamic valor) {
     final numero = (valor as num?)?.toDouble() ?? 0;
     return numero.toStringAsFixed(2).replaceAll('.', ',');
   }
