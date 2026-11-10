@@ -1,5 +1,3 @@
-
-
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -375,9 +373,9 @@ class _PerfilScreenState extends State<PerfilScreen> {
         if (snapshot.hasError) {
           return AcessoNegadoScreen(
             mensagem: snapshot.error.toString().replaceFirst(
-              'Exception: ',
-              '',
-            ),
+                  'Exception: ',
+                  '',
+                ),
           );
         }
 
@@ -854,73 +852,71 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
     }
   }
 
+  Future<void> prepararCatalogoInicial() async {
+    if (preparando) return;
 
-Future<void> prepararCatalogoInicial() async {
-  if (preparando) return;
+    setState(() {
+      preparando = true;
+      erroPreparacao = null;
+    });
 
-  setState(() {
-    preparando = true;
-    erroPreparacao = null;
-  });
+    try {
+      final existentes = await colecao.get();
 
-  try {
-    final existentes = await colecao.get();
+      final nomesExistentes = existentes.docs.map((doc) {
+        final dados = doc.data();
+        final nome = (dados['nome'] ?? '').toString().trim();
+        final categoria = (dados['categoria'] ?? '').toString().trim();
 
-    final nomesExistentes = existentes.docs.map((doc) {
-      final dados = doc.data();
-      final nome = (dados['nome'] ?? '').toString().trim();
-      final categoria = (dados['categoria'] ?? '').toString().trim();
+        return '$categoria::$nome';
+      }).toSet();
 
-      return '$categoria::$nome';
-    }).toSet();
+      final lote = FirebaseFirestore.instance.batch();
+      int quantidadeAdicionada = 0;
 
-    final lote = FirebaseFirestore.instance.batch();
-    int quantidadeAdicionada = 0;
+      for (int i = 0; i < servicosIniciais.length; i++) {
+        final servico = servicosIniciais[i];
 
-    for (int i = 0; i < servicosIniciais.length; i++) {
-      final servico = servicosIniciais[i];
+        final chave = '${servico['categoria']}::${servico['nome']}';
 
-      final chave =
-          '${servico['categoria']}::${servico['nome']}';
+        if (nomesExistentes.contains(chave)) {
+          continue;
+        }
 
-      if (nomesExistentes.contains(chave)) {
-        continue;
+        final referencia = colecao.doc();
+
+        lote.set(referencia, {
+          ...servico,
+          'ativo': true,
+          'descricao': '',
+          'imagemUrl': '',
+          'ordem': i,
+          'criadoEm': FieldValue.serverTimestamp(),
+          'atualizadoEm': FieldValue.serverTimestamp(),
+        });
+
+        nomesExistentes.add(chave);
+        quantidadeAdicionada++;
       }
 
-      final referencia = colecao.doc();
+      if (quantidadeAdicionada > 0) {
+        await lote.commit();
+      }
 
-      lote.set(referencia, {
-        ...servico,
-        'ativo': true,
-        'descricao': '',
-        'imagemUrl': '',
-        'ordem': i,
-        'criadoEm': FieldValue.serverTimestamp(),
-        'atualizadoEm': FieldValue.serverTimestamp(),
-      });
-
-      quantidadeAdicionada++;
-    }
-
-    if (quantidadeAdicionada > 0) {
-      await lote.commit();
-    }
-
-    debugPrint(
-      'CATÁLOGO: $quantidadeAdicionada serviços adicionados.',
-    );
-
-  } catch (e) {
-    erroPreparacao =
-        'Erro ao preparar catálogo: $e';
-    debugPrint('ERRO NA PREPARAÇÃO DO CATÁLOGO: $e');
-  } finally {
-    if (mounted) {
-      setState(() => preparando = false);
+      debugPrint(
+        'CATÁLOGO: $quantidadeAdicionada serviços adicionados.',
+      );
+    } catch (e) {
+      erroPreparacao = 'Erro ao preparar catálogo: $e';
+      debugPrint('ERRO NA PREPARAÇÃO DO CATÁLOGO: $e');
+    } finally {
+      if (mounted) {
+        setState(() => preparando = false);
+      }
     }
   }
-}
 
+  String formatarPreco(dynamic valor) {
     final numero = (valor as num?)?.toDouble() ?? 0;
     return numero.toStringAsFixed(2).replaceAll('.', ',');
   }
@@ -1044,78 +1040,77 @@ Future<void> prepararCatalogoInicial() async {
                 style: const TextStyle(color: Colors.redAccent),
               ),
             ),
-          
-Expanded(
-              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: colecao.snapshots(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(
-                      child: CircularProgressIndicator(color: dourado),
-                    );
-                  }
+          Expanded(
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: colecao.snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: CircularProgressIndicator(color: dourado),
+                  );
+                }
 
-                  if (snapshot.hasError) {
-                    debugPrint('ERRO AO CARREGAR CATALOGO: ${snapshot.error}');
+                if (snapshot.hasError) {
+                  debugPrint('ERRO AO CARREGAR CATALOGO: ${snapshot.error}');
 
-                    return Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: SelectableText(
-                          'ERRO REAL AO CARREGAR OS SERVIÇOS:\n\n'
-                          '${snapshot.error}',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Colors.redAccent,
-                            fontSize: 14,
-                          ),
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: SelectableText(
+                        'ERRO REAL AO CARREGAR OS SERVIÇOS:\n\n'
+                        '${snapshot.error}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.redAccent,
+                          fontSize: 14,
                         ),
                       ),
-                    );
-                  }
+                    ),
+                  );
+                }
 
-                  final documentos = snapshot.data?.docs ?? [];
+                final documentos = snapshot.data?.docs ?? [];
 
-                  final filtrados = documentos.where((documento) {
+                final filtrados = documentos.where((documento) {
+                  final dados = documento.data();
+                  final categoria = dados['categoria'] ?? '';
+                  final ativo = dados['ativo'] == true;
+
+                  if (!ativo) return false;
+
+                  return categoriaSelecionada == 'Todas' ||
+                      categoria == categoriaSelecionada;
+                }).toList();
+
+                // A ordenação é feita no aplicativo, sem orderBy no Firestore.
+                filtrados.sort((a, b) {
+                  final ordemA =
+                      (a.data()['ordem'] as num?)?.toInt() ?? 0;
+                  final ordemB =
+                      (b.data()['ordem'] as num?)?.toInt() ?? 0;
+                  return ordemA.compareTo(ordemB);
+                });
+
+                if (filtrados.isEmpty) {
+                  return const Center(
+                    child: Text('Nenhum serviço encontrado.'),
+                  );
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                  itemCount: filtrados.length,
+                  itemBuilder: (context, index) {
+                    final documento = filtrados[index];
                     final dados = documento.data();
-                    final categoria = dados['categoria'] ?? '';
-                    final ativo = dados['ativo'] == true;
 
-                    if (!ativo) return false;
+                    final nome = (dados['nome'] ?? '').toString();
+                    final categoria =
+                        (dados['categoria'] ?? '').toString();
+                    final preco = formatarPreco(dados['preco']);
+                    final aPartir = dados['tipoPreco'] == 'a_partir';
 
-                    return categoriaSelecionada == 'Todas' ||
-                        categoria == categoriaSelecionada;
-                  }).toList();
-
-                  // A ordenação é feita no aplicativo, sem orderBy no Firestore.
-                  filtrados.sort((a, b) {
-                    final ordemA =
-                        (a.data()['ordem'] as num?)?.toInt() ?? 0;
-                    final ordemB =
-                        (b.data()['ordem'] as num?)?.toInt() ?? 0;
-                    return ordemA.compareTo(ordemB);
-                  });
-
-                  if (filtrados.isEmpty) {
-                    return const Center(
-                      child: Text('Nenhum serviço encontrado.'),
-                    );
-                  }
-
-                  return ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-                    itemCount: filtrados.length,
-                    itemBuilder: (context, index) {
-                      final documento = filtrados[index];
-                      final dados = documento.data();
-
-                      final nome = (dados['nome'] ?? '').toString();
-                      final categoria =
-                          (dados['categoria'] ?? '').toString();
-                      final preco = formatarPreco(dados['preco']);
-                      final aPartir = dados['tipoPreco'] == 'a_partir';
-
-                      return Card(
+                    return Card(
                       color: cartao,
                       margin: const EdgeInsets.only(bottom: 11),
                       shape: RoundedRectangleBorder(
