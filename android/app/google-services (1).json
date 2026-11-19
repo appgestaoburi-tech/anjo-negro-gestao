@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "847868659447",
+    "project_id": "anjo-37b75",
+    "storage_bucket": "anjo-37b75.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:847868659447:android:c22ad9fb607748510635f2",
+        "android_client_info": {
+          "package_name": "com.anjonegro.gestao"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDWvCiTXFknYRDrRONDKuuVzDA2ZNKnLTs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
