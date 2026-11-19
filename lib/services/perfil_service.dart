@@ -39,7 +39,7 @@ class PerfilService {
     final cargo =
         (_campo(dados, 'cargo') ?? '').toString().toLowerCase().trim();
 
-    if (!['admin', 'administrador', 'colaborador'].contains(cargo)) {
+    if (!['admin', 'administrador', 'admin_equipe', 'colaborador'].contains(cargo)) {
       throw Exception('Seu perfil não possui um cargo válido.');
     }
 
