@@ -4,6 +4,7 @@ import '../config/tema.dart';
 import '../models/perfil_usuario.dart';
 import '../widgets/cards_painel.dart';
 import 'catalogo/catalogo_screen.dart';
+import 'funcionarios/funcionarios_screen.dart';
 import 'telas_basicas.dart';
 
 class PainelScreen extends StatelessWidget {
