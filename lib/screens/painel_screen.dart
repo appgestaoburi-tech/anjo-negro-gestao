@@ -47,7 +47,7 @@ class PainelScreen extends StatelessWidget {
               ),
               const SizedBox(height: 5),
               Text(
-                perfil.administrador ? 'Administrador' : 'Colaborador',
+                perfil.rotuloCargo,
                 style: const TextStyle(color: dourado, fontSize: 14),
               ),
               const SizedBox(height: 25),
@@ -134,6 +134,17 @@ class PainelScreen extends StatelessWidget {
                       titulo: 'Configurações',
                       icone: Icons.settings,
                       onTap: () => abrirModulo(context, 'Configurações'),
+                                        if (perfil.permissaoTotal)
+                    ModuloCard(
+                      titulo: 'Funcionários',
+                      icone: Icons.badge_outlined,
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => FuncionariosScreen(perfil: perfil),
+                        ),
+                      ),
+                    ),
                     ),
                 ],
               ),
