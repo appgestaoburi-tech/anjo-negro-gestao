@@ -13,7 +13,9 @@ class PerfilUsuario {
     this.permissoes = const {},
   });
 
-  bool get   String get rotuloCargo {
+  bool get administrador => cargo == 'admin' || cargo == 'administrador';
+
+  String get rotuloCargo {
     if (administrador) return 'Administrador';
     if (cargo == 'admin_equipe') return 'Administrador de equipe';
     return 'Colaborador';
