@@ -3,8 +3,10 @@ import '../../config/catalogo_inicial.dart';
 import '../../config/tema.dart';
 import '../../models/comanda.dart';
 import '../../models/perfil_usuario.dart';
+import '../../models/produto.dart';
 import '../../models/servico.dart';
 import '../../repositories/comanda_repository.dart';
+import '../../repositories/produto_repository.dart';
 import '../../repositories/servico_repository.dart';
 import '../../utils/datas.dart';
 import '../../utils/dinheiro.dart';
@@ -41,6 +43,18 @@ class ComandaScreen extends StatelessWidget {
 
     if (servico == null || !context.mounted) return;
     await _executar(context, () => _repo.adicionarServico(c.id, servico));
+  }
+
+  Future<void> _adicionarProduto(BuildContext context, Comanda c) async {
+    final produto = await showModalBottomSheet<Produto>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: cartao,
+      builder: (_) => const _SeletorProduto(),
+    );
+
+    if (produto == null || !context.mounted) return;
+    await _executar(context, () => _repo.adicionarProduto(c.id, produto));
   }
 
   Future<void> _ajustarPreco(
@@ -123,14 +137,7 @@ class ComandaScreen extends StatelessWidget {
                   children: [
                     _cabecalho(c),
                     const SizedBox(height: 22),
-                    const Text(
-                      'SERVIÇOS',
-                      style: TextStyle(
-                        color: dourado,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 2,
-                      ),
-                    ),
+                    _titulo('SERVIÇOS'),
                     const SizedBox(height: 10),
                     if (c.servicos.isEmpty)
                       const Padding(
@@ -140,30 +147,39 @@ class ComandaScreen extends StatelessWidget {
                           style: TextStyle(color: Colors.white54),
                         ),
                       ),
-                    for (final item in c.servicos) _itemCard(context, c, item),
+                    for (final item in c.servicos) _servicoCard(context, c, item),
                     if (c.aberta) ...[
                       const SizedBox(height: 6),
-                      SizedBox(
-                        height: 50,
-                        child: ElevatedButton.icon(
-                          onPressed: () => _adicionarServico(context, c),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: dourado,
-                            foregroundColor: Colors.black,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          icon: const Icon(Icons.add),
-                          label: const Text(
-                            'ADICIONAR SERVIÇO',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
+                      _botao(
+                        'ADICIONAR SERVIÇO',
+                        () => _adicionarServico(context, c),
+                        destaque: true,
+                      ),
+                    ],
+                    if (c.produtos.isNotEmpty || c.aberta) ...[
+                      const SizedBox(height: 24),
+                      _titulo('PRODUTOS'),
+                      const SizedBox(height: 10),
+                    ],
+                    if (c.produtos.isEmpty && c.aberta)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 12),
+                        child: Text(
+                          'Opcional: adicione apenas se o cliente '
+                          'comprar algum produto.',
+                          style: TextStyle(color: Colors.white54),
                         ),
+                      ),
+                    for (final item in c.produtos) _produtoCard(context, c, item),
+                    if (c.aberta) ...[
+                      const SizedBox(height: 6),
+                      _botao(
+                        'ADICIONAR PRODUTO',
+                        () => _adicionarProduto(context, c),
                       ),
                       const SizedBox(height: 18),
                       const Text(
-                        'Produtos, desconto e pagamento serão ativados '
+                        'Desconto e pagamento serão ativados '
                         'nas próximas partes desta etapa.',
                         style: TextStyle(color: Colors.white38, fontSize: 12),
                       ),
@@ -176,6 +192,54 @@ class ComandaScreen extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+
+  Widget _titulo(String texto) {
+    return Text(
+      texto,
+      style: const TextStyle(
+        color: dourado,
+        fontWeight: FontWeight.bold,
+        letterSpacing: 2,
+      ),
+    );
+  }
+
+  Widget _botao(String texto, VoidCallback onPressed, {bool destaque = false}) {
+    return SizedBox(
+      height: 50,
+      child: destaque
+          ? ElevatedButton.icon(
+              onPressed: onPressed,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: dourado,
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              icon: const Icon(Icons.add),
+              label: Text(
+                texto,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            )
+          : OutlinedButton.icon(
+              onPressed: onPressed,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: dourado,
+                side: const BorderSide(color: dourado),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              icon: const Icon(Icons.add),
+              label: Text(
+                texto,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
     );
   }
 
@@ -220,7 +284,7 @@ class ComandaScreen extends StatelessWidget {
     );
   }
 
-  Widget _itemCard(BuildContext context, Comanda c, ItemComanda item) {
+  Widget _servicoCard(BuildContext context, Comanda c, ItemComanda item) {
     final alterado = item.precoCentavos != item.precoCatalogoCentavos;
 
     return Card(
@@ -265,7 +329,10 @@ class ComandaScreen extends StatelessWidget {
                   if (opcao == 'preco') {
                     _ajustarPreco(context, c, item);
                   } else {
-                    _executar(context, () => _repo.removerItem(c.id, item.id));
+                    _executar(
+                      context,
+                      () => _repo.removerServico(c.id, item.id),
+                    );
                   }
                 },
                 itemBuilder: (_) => [
@@ -286,37 +353,175 @@ class ComandaScreen extends StatelessWidget {
     );
   }
 
+  Widget _produtoCard(BuildContext context, Comanda c, ItemProduto item) {
+    return Card(
+      color: cartao,
+      margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(13),
+        side: const BorderSide(color: bordaCartao),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(15, 12, 8, 6),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.nome,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${Dinheiro.formatar(item.precoCentavos)} cada',
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(right: 7),
+                  child: Text(
+                    Dinheiro.formatar(item.totalCentavos),
+                    style: const TextStyle(
+                      color: dourado,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (c.aberta)
+              Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.remove_circle_outline),
+                    color: dourado,
+                    onPressed: () => _executar(
+                      context,
+                      () => _repo.alterarQuantidadeProduto(
+                        c.id,
+                        item.id,
+                        item.quantidade - 1,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    '${item.quantidade}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.add_circle_outline),
+                    color: dourado,
+                    onPressed: () => _executar(
+                      context,
+                      () => _repo.alterarQuantidadeProduto(
+                        c.id,
+                        item.id,
+                        item.quantidade + 1,
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton.icon(
+                    onPressed: () => _executar(
+                      context,
+                      () => _repo.removerProduto(c.id, item.id),
+                    ),
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    label: const Text('Remover'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white70,
+                    ),
+                  ),
+                ],
+              )
+            else
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    'Quantidade: ${item.quantidade}',
+                    style: const TextStyle(color: Colors.white54),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _barraTotal(Comanda c) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
       decoration: const BoxDecoration(
         color: cartao,
         border: Border(top: BorderSide(color: bordaCartao)),
       ),
       child: SafeArea(
         top: false,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-              'TOTAL',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                letterSpacing: 2,
-                color: Colors.white70,
-              ),
-            ),
-            Text(
-              Dinheiro.formatar(c.totalCentavos),
-              style: const TextStyle(
-                color: dourado,
-                fontWeight: FontWeight.bold,
-                fontSize: 24,
-              ),
+            if (c.subtotalProdutosCentavos > 0) ...[
+              _linhaValor('Serviços', c.subtotalServicosCentavos),
+              const SizedBox(height: 2),
+              _linhaValor('Produtos', c.subtotalProdutosCentavos),
+              const SizedBox(height: 8),
+            ],
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'TOTAL',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 2,
+                    color: Colors.white70,
+                  ),
+                ),
+                Text(
+                  Dinheiro.formatar(c.totalCentavos),
+                  style: const TextStyle(
+                    color: dourado,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 24,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _linhaValor(String rotulo, int centavos) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          rotulo,
+          style: const TextStyle(color: Colors.white54, fontSize: 13),
+        ),
+        Text(
+          Dinheiro.formatar(centavos),
+          style: const TextStyle(color: Colors.white70, fontSize: 13),
+        ),
+      ],
     );
   }
 }
@@ -359,7 +564,8 @@ class _SeletorServico extends StatelessWidget {
                   );
                 }
 
-                final lista = (snapshot.data ?? []).where((s) => s.ativo).toList();
+                final lista =
+                    (snapshot.data ?? []).where((s) => s.ativo).toList();
 
                 if (lista.isEmpty) {
                   return const Center(
@@ -400,171 +606,4 @@ class _SeletorServico extends StatelessWidget {
                       ListTile(
                         title: Text(s.nome),
                         subtitle: s.aPartir ? const Text('A partir de') : null,
-                        trailing: Text(
-                          Dinheiro.formatar(s.precoCentavos),
-                          style: const TextStyle(
-                            color: dourado,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        onTap: () => Navigator.pop(context, s),
-                      ),
-                    );
-                  }
-                }
-
-                return ListView(children: widgets);
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DialogPreco extends StatefulWidget {
-  final ItemComanda item;
-
-  const _DialogPreco({required this.item});
-
-  @override
-  State<_DialogPreco> createState() => _DialogPrecoState();
-}
-
-class _DialogPrecoState extends State<_DialogPreco> {
-  late final TextEditingController _valor;
-  String? _erro;
-
-  @override
-  void initState() {
-    super.initState();
-    final c = widget.item.precoCentavos;
-    _valor = TextEditingController(
-      text: '${c ~/ 100},${(c % 100).toString().padLeft(2, '0')}',
-    );
-  }
-
-  @override
-  void dispose() {
-    _valor.dispose();
-    super.dispose();
-  }
-
-  void _confirmar() {
-    final centavos = Dinheiro.paraCentavos(_valor.text);
-    final minimo = widget.item.precoCatalogoCentavos;
-
-    if (centavos == null || centavos <= 0) {
-      setState(() => _erro = 'Informe um valor válido.');
-      return;
-    }
-    if (centavos < minimo) {
-      setState(() {
-        _erro = 'O valor mínimo é ${Dinheiro.formatar(minimo)}. '
-            'Reduções serão feitas pelo desconto da comanda.';
-      });
-      return;
-    }
-
-    Navigator.pop(context, centavos);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: cartao,
-      title: Text(
-        widget.item.nome,
-        style: const TextStyle(color: dourado),
-      ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _valor,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
-              labelText: 'Valor cobrado (R\$)',
-              prefixIcon: Icon(Icons.attach_money),
-            ),
-          ),
-          if (_erro != null) ...[
-            const SizedBox(height: 10),
-            Text(_erro!, style: const TextStyle(color: Colors.redAccent)),
-          ],
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('CANCELAR'),
-        ),
-        ElevatedButton(
-          onPressed: _confirmar,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: dourado,
-            foregroundColor: Colors.black,
-          ),
-          child: const Text('SALVAR'),
-        ),
-      ],
-    );
-  }
-}
-
-class _DialogCancelar extends StatefulWidget {
-  const _DialogCancelar();
-
-  @override
-  State<_DialogCancelar> createState() => _DialogCancelarState();
-}
-
-class _DialogCancelarState extends State<_DialogCancelar> {
-  final _motivo = TextEditingController();
-
-  @override
-  void dispose() {
-    _motivo.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: cartao,
-      title: const Text('Cancelar comanda', style: TextStyle(color: dourado)),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'A comanda será cancelada e continuará registrada no histórico.',
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _motivo,
-            maxLines: 2,
-            decoration: const InputDecoration(
-              labelText: 'Motivo (opcional)',
-            ),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('VOLTAR'),
-        ),
-        ElevatedButton(
-          onPressed: () => Navigator.pop(context, _motivo.text.trim()),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.redAccent,
-            foregroundColor: Colors.white,
-          ),
-          child: const Text('CANCELAR COMANDA'),
-        ),
-      ],
-    );
-  }
-}
+                        trailing
