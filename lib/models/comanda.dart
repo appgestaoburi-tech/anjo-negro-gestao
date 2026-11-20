@@ -52,6 +52,50 @@ class ItemComanda {
       );
 }
 
+class ItemProduto {
+  final String id;
+  final String produtoId;
+  final String nome;
+  final int precoCentavos;
+  final int quantidade;
+
+  const ItemProduto({
+    required this.id,
+    required this.produtoId,
+    required this.nome,
+    required this.precoCentavos,
+    required this.quantidade,
+  });
+
+  factory ItemProduto.doMapa(Map<String, dynamic> m) {
+    return ItemProduto(
+      id: (m['id'] ?? '').toString(),
+      produtoId: (m['produtoId'] ?? '').toString(),
+      nome: (m['nome'] ?? '').toString(),
+      precoCentavos: (m['precoCentavos'] as num?)?.toInt() ?? 0,
+      quantidade: (m['quantidade'] as num?)?.toInt() ?? 1,
+    );
+  }
+
+  Map<String, dynamic> paraMapa() => {
+        'id': id,
+        'produtoId': produtoId,
+        'nome': nome,
+        'precoCentavos': precoCentavos,
+        'quantidade': quantidade,
+      };
+
+  int get totalCentavos => precoCentavos * quantidade;
+
+  ItemProduto comQuantidade(int nova) => ItemProduto(
+        id: id,
+        produtoId: produtoId,
+        nome: nome,
+        precoCentavos: precoCentavos,
+        quantidade: nova,
+      );
+}
+
 class Comanda {
   final String id;
   final int numero;
@@ -61,6 +105,7 @@ class Comanda {
   final String clienteId;
   final String clienteNome;
   final List<ItemComanda> servicos;
+  final List<ItemProduto> produtos;
   final int subtotalServicosCentavos;
   final int subtotalProdutosCentavos;
   final int descontoCentavos;
@@ -77,6 +122,7 @@ class Comanda {
     required this.clienteId,
     required this.clienteNome,
     required this.servicos,
+    required this.produtos,
     required this.subtotalServicosCentavos,
     required this.subtotalProdutosCentavos,
     required this.descontoCentavos,
@@ -89,11 +135,21 @@ class Comanda {
     final d = doc.data() ?? <String, dynamic>{};
 
     final servicos = <ItemComanda>[];
-    final brutos = d['servicos'];
-    if (brutos is List) {
-      for (final m in brutos) {
+    final brutosServicos = d['servicos'];
+    if (brutosServicos is List) {
+      for (final m in brutosServicos) {
         if (m is Map) {
           servicos.add(ItemComanda.doMapa(Map<String, dynamic>.from(m)));
+        }
+      }
+    }
+
+    final produtos = <ItemProduto>[];
+    final brutosProdutos = d['produtos'];
+    if (brutosProdutos is List) {
+      for (final m in brutosProdutos) {
+        if (m is Map) {
+          produtos.add(ItemProduto.doMapa(Map<String, dynamic>.from(m)));
         }
       }
     }
@@ -109,6 +165,7 @@ class Comanda {
       clienteId: (d['clienteId'] ?? '').toString(),
       clienteNome: (d['clienteNome'] ?? '').toString(),
       servicos: servicos,
+      produtos: produtos,
       subtotalServicosCentavos:
           (d['subtotalServicosCentavos'] as num?)?.toInt() ?? 0,
       subtotalProdutosCentavos:
