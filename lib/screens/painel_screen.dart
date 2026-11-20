@@ -131,11 +131,6 @@ class PainelScreen extends StatelessWidget {
                   ),
                   if (perfil.permissaoTotal)
                     ModuloCard(
-                      titulo: 'Configurações',
-                      icone: Icons.settings,
-                      onTap: () => abrirModulo(context, 'Configurações'),
-                                        if (perfil.permissaoTotal)
-                    ModuloCard(
                       titulo: 'Funcionários',
                       icone: Icons.badge_outlined,
                       onTap: () => Navigator.push(
@@ -145,6 +140,11 @@ class PainelScreen extends StatelessWidget {
                         ),
                       ),
                     ),
+                  if (perfil.permissaoTotal)
+                    ModuloCard(
+                      titulo: 'Configurações',
+                      icone: Icons.settings,
+                      onTap: () => abrirModulo(context, 'Configurações'),
                     ),
                 ],
               ),
