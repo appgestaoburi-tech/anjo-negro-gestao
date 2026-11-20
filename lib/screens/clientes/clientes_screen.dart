@@ -1,7 +1,9 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../../config/tema.dart';
 import '../../models/cliente.dart';
 import '../../repositories/cliente_repository.dart';
+import '../../services/perfil_service.dart';
 
 class ClientesScreen extends StatefulWidget {
   const ClientesScreen({super.key});
@@ -14,6 +16,24 @@ class _ClientesScreenState extends State<ClientesScreen> {
   final _repo = ClienteRepository();
   final _busca = TextEditingController();
   String _termo = '';
+  bool _admin = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _carregarPermissao();
+  }
+
+  Future<void> _carregarPermissao() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    try {
+      final perfil = await PerfilService().carregar(user.uid);
+      if (mounted) setState(() => _admin = perfil.permissaoTotal);
+    } catch (_) {
+      // Sem permissão confirmada, a exclusão simplesmente não aparece.
+    }
+  }
 
   @override
   void dispose() {
@@ -145,6 +165,7 @@ class _ClientesScreenState extends State<ClientesScreen> {
                             builder: (_) => ClienteDetalheScreen(
                               id: c.id,
                               repo: _repo,
+                              podeExcluir: _admin,
                             ),
                           ),
                         ),
@@ -168,11 +189,68 @@ class _ClientesScreenState extends State<ClientesScreen> {
   }
 }
 
+Future<bool> _confirmarExclusao(BuildContext context, String nome) async {
+  final resposta = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: cartao,
+      title: const Text('Excluir cliente', style: TextStyle(color: dourado)),
+      content: Text(
+        'Excluir "$nome" definitivamente?\n\n'
+        'Esta ação não pode ser desfeita.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('CANCELAR'),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.redAccent,
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('EXCLUIR'),
+        ),
+      ],
+    ),
+  );
+  return resposta == true;
+}
+
 class ClienteDetalheScreen extends StatelessWidget {
   final String id;
   final ClienteRepository repo;
+  final bool podeExcluir;
 
-  const ClienteDetalheScreen({super.key, required this.id, required this.repo});
+  const ClienteDetalheScreen({
+    super.key,
+    required this.id,
+    required this.repo,
+    this.podeExcluir = false,
+  });
+
+  Future<void> _excluir(BuildContext context, Cliente c) async {
+    final confirmou = await _confirmarExclusao(context, c.nome);
+    if (!confirmou || !context.mounted) return;
+
+    final navegador = Navigator.of(context);
+    final mensagens = ScaffoldMessenger.of(context);
+
+    try {
+      await repo.excluir(c.id);
+      navegador.pop();
+      mensagens.showSnackBar(
+        const SnackBar(content: Text('Cliente excluído.')),
+      );
+    } catch (_) {
+      mensagens.showSnackBar(
+        const SnackBar(
+          content: Text('Não foi possível excluir. Confira as permissões.'),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -201,6 +279,12 @@ class ClienteDetalheScreen extends StatelessWidget {
                       );
                     }
                   },
+                ),
+              if (c != null && podeExcluir)
+                IconButton(
+                  tooltip: 'Excluir cliente',
+                  icon: const Icon(Icons.delete_outline),
+                  onPressed: () => _excluir(context, c),
                 ),
             ],
           ),
