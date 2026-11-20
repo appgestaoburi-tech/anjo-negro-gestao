@@ -62,4 +62,9 @@ class ClienteRepository {
       'atualizadoEm': FieldValue.serverTimestamp(),
     });
   }
+
+  /// Só o administrador consegue (regra do Firestore).
+  Future<void> excluir(String id) async {
+    await _col.doc(id).delete();
+  }
 }
