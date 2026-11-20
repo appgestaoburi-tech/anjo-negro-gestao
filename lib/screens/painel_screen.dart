@@ -4,8 +4,11 @@ import '../config/tema.dart';
 import '../models/perfil_usuario.dart';
 import '../widgets/aniversariantes_card.dart';
 import '../widgets/cards_painel.dart';
+import '../widgets/indicador_comandas_abertas.dart';
 import 'catalogo/catalogo_screen.dart';
 import 'clientes/clientes_screen.dart';
+import 'comandas/comandas_screen.dart';
+import 'comandas/nova_comanda.dart';
 import 'funcionarios/funcionarios_screen.dart';
 import 'telas_basicas.dart';
 
@@ -62,23 +65,19 @@ class PainelScreen extends StatelessWidget {
                 crossAxisSpacing: 12,
                 mainAxisSpacing: 12,
                 childAspectRatio: 1.45,
-                children: const [
-                  IndicadorCard(
+                children: [
+                  const IndicadorCard(
                     titulo: 'Entradas do dia',
                     valor: '—',
                     icone: Icons.attach_money,
                   ),
-                  IndicadorCard(
-                    titulo: 'Comandas abertas',
-                    valor: '—',
-                    icone: Icons.receipt_long,
-                  ),
-                  IndicadorCard(
+                  IndicadorComandasAbertas(perfil: perfil),
+                  const IndicadorCard(
                     titulo: 'Clientes atendidos',
                     valor: '—',
                     icone: Icons.people_outline,
                   ),
-                  IndicadorCard(
+                  const IndicadorCard(
                     titulo: 'Resultado estimado',
                     valor: '—',
                     icone: Icons.trending_up,
@@ -101,7 +100,17 @@ class PainelScreen extends StatelessWidget {
                   ModuloCard(
                     titulo: 'Nova comanda',
                     icone: Icons.add_shopping_cart,
-                    onTap: () => abrirModulo(context, 'Nova comanda'),
+                    onTap: () => iniciarNovaComanda(context, perfil),
+                  ),
+                  ModuloCard(
+                    titulo: 'Comandas abertas',
+                    icone: Icons.receipt_long,
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ComandasScreen(perfil: perfil),
+                      ),
+                    ),
                   ),
                   ModuloCard(
                     titulo: 'Clientes',
