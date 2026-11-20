@@ -10,6 +10,7 @@ import 'clientes/clientes_screen.dart';
 import 'comandas/comandas_screen.dart';
 import 'comandas/nova_comanda.dart';
 import 'funcionarios/funcionarios_screen.dart';
+import 'produtos/produtos_screen.dart';
 import 'telas_basicas.dart';
 
 class PainelScreen extends StatelessWidget {
@@ -135,7 +136,18 @@ class PainelScreen extends StatelessWidget {
                   ModuloCard(
                     titulo: 'Estoque',
                     icone: Icons.inventory_2_outlined,
-                    onTap: () => abrirModulo(context, 'Estoque'),
+                    onTap: () {
+                      if (perfil.permissaoTotal) {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const ProdutosScreen(),
+                          ),
+                        );
+                      } else {
+                        abrirModulo(context, 'Estoque');
+                      }
+                    },
                   ),
                   ModuloCard(
                     titulo: 'Caixa',
