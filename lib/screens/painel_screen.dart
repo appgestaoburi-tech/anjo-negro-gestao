@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../config/tema.dart';
 import '../models/perfil_usuario.dart';
+import '../widgets/aniversariantes_card.dart';
 import '../widgets/cards_painel.dart';
 import 'catalogo/catalogo_screen.dart';
 import 'clientes/clientes_screen.dart';
@@ -84,6 +85,8 @@ class PainelScreen extends StatelessWidget {
                   ),
                 ],
               ),
+              const SizedBox(height: 14),
+              const AniversariantesCard(),
               const SizedBox(height: 28),
               const TextoSecao(titulo: 'GESTÃO DA BARBEARIA'),
               const SizedBox(height: 13),
