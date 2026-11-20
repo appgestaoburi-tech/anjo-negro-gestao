@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/cliente.dart';
 import '../models/comanda.dart';
 import '../models/perfil_usuario.dart';
+import '../models/produto.dart';
 import '../models/servico.dart';
 
 class ComandaRepository {
@@ -60,6 +61,7 @@ class ComandaRepository {
         'clienteId': cliente?.id ?? '',
         'clienteNome': cliente?.nome ?? '',
         'servicos': <Map<String, dynamic>>[],
+        'produtos': <Map<String, dynamic>>[],
         'subtotalServicosCentavos': 0,
         'subtotalProdutosCentavos': 0,
         'descontoCentavos': 0,
@@ -73,9 +75,28 @@ class ComandaRepository {
     return novaRef.id;
   }
 
-  Future<void> _alterarServicos(
+  /// Recalcula subtotais e total a partir das listas de itens.
+  Map<String, dynamic> _camposAtualizados(
+    List<ItemComanda> servicos,
+    List<ItemProduto> produtos,
+    int descontoCentavos,
+  ) {
+    final subServicos = servicos.fold<int>(0, (s, i) => s + i.precoCentavos);
+    final subProdutos = produtos.fold<int>(0, (s, i) => s + i.totalCentavos);
+
+    return {
+      'servicos': servicos.map((i) => i.paraMapa()).toList(),
+      'produtos': produtos.map((i) => i.paraMapa()).toList(),
+      'subtotalServicosCentavos': subServicos,
+      'subtotalProdutosCentavos': subProdutos,
+      'totalCentavos': subServicos + subProdutos - descontoCentavos,
+      'atualizadoEm': FieldValue.serverTimestamp(),
+    };
+  }
+
+  Future<void> _alterar(
     String id,
-    List<ItemComanda> Function(List<ItemComanda>) transforma,
+    Map<String, dynamic> Function(Comanda c) monta,
   ) async {
     await _firestore.runTransaction((tx) async {
       final ref = _col.doc(id);
@@ -86,19 +107,11 @@ class ComandaRepository {
       final c = Comanda.doDocumento(snap);
       if (!c.aberta) throw Exception('Esta comanda não está mais aberta.');
 
-      final novos = transforma(c.servicos);
-      final subtotal = novos.fold<int>(0, (soma, i) => soma + i.precoCentavos);
-      final total =
-          subtotal + c.subtotalProdutosCentavos - c.descontoCentavos;
-
-      tx.update(ref, {
-        'servicos': novos.map((i) => i.paraMapa()).toList(),
-        'subtotalServicosCentavos': subtotal,
-        'totalCentavos': total,
-        'atualizadoEm': FieldValue.serverTimestamp(),
-      });
+      tx.update(ref, monta(c));
     });
   }
+
+  // ---------------- Serviços ----------------
 
   Future<void> adicionarServico(String comandaId, Servico s) {
     final item = ItemComanda(
@@ -110,20 +123,32 @@ class ComandaRepository {
       precoCentavos: s.precoCentavos,
       aPartir: s.aPartir,
     );
-    return _alterarServicos(comandaId, (lista) => [...lista, item]);
+
+    return _alterar(
+      comandaId,
+      (c) => _camposAtualizados(
+        [...c.servicos, item],
+        c.produtos,
+        c.descontoCentavos,
+      ),
+    );
   }
 
-  Future<void> removerItem(String comandaId, String itemId) {
-    return _alterarServicos(
+  Future<void> removerServico(String comandaId, String itemId) {
+    return _alterar(
       comandaId,
-      (lista) => lista.where((i) => i.id != itemId).toList(),
+      (c) => _camposAtualizados(
+        c.servicos.where((i) => i.id != itemId).toList(),
+        c.produtos,
+        c.descontoCentavos,
+      ),
     );
   }
 
   /// Só serviços "a partir de" podem ter o preço alterado, e só para cima.
   Future<void> ajustarPreco(String comandaId, String itemId, int novo) {
-    return _alterarServicos(comandaId, (lista) {
-      return lista.map((i) {
+    return _alterar(comandaId, (c) {
+      final servicos = c.servicos.map((i) {
         if (i.id != itemId) return i;
         if (!i.aPartir) throw Exception('O preço deste serviço é fixo.');
         if (novo < i.precoCatalogoCentavos) {
@@ -131,8 +156,74 @@ class ComandaRepository {
         }
         return i.comPreco(novo);
       }).toList();
+
+      return _camposAtualizados(servicos, c.produtos, c.descontoCentavos);
     });
   }
+
+  // ---------------- Produtos ----------------
+
+  /// O estoque NÃO é alterado aqui: a baixa acontece só na finalização.
+  Future<void> adicionarProduto(String comandaId, Produto p) {
+    return _alterar(comandaId, (c) {
+      if (!p.ativo) throw Exception('Este produto está desativado.');
+      if (p.estoqueQtd <= 0) throw Exception('Produto sem estoque.');
+
+      final produtos = [...c.produtos];
+      final indice = produtos.indexWhere((x) => x.produtoId == p.id);
+
+      if (indice >= 0) {
+        final nova = produtos[indice].quantidade + 1;
+        if (nova > p.estoqueQtd) {
+          throw Exception('Quantidade maior que o estoque disponível.');
+        }
+        produtos[indice] = produtos[indice].comQuantidade(nova);
+      } else {
+        produtos.add(
+          ItemProduto(
+            id: _col.doc().id,
+            produtoId: p.id,
+            nome: p.nome,
+            precoCentavos: p.precoVendaCentavos,
+            quantidade: 1,
+          ),
+        );
+      }
+
+      return _camposAtualizados(c.servicos, produtos, c.descontoCentavos);
+    });
+  }
+
+  Future<void> alterarQuantidadeProduto(
+    String comandaId,
+    String itemId,
+    int quantidade,
+  ) {
+    return _alterar(comandaId, (c) {
+      final produtos = <ItemProduto>[];
+      for (final i in c.produtos) {
+        if (i.id != itemId) {
+          produtos.add(i);
+        } else if (quantidade >= 1) {
+          produtos.add(i.comQuantidade(quantidade));
+        }
+      }
+      return _camposAtualizados(c.servicos, produtos, c.descontoCentavos);
+    });
+  }
+
+  Future<void> removerProduto(String comandaId, String itemId) {
+    return _alterar(
+      comandaId,
+      (c) => _camposAtualizados(
+        c.servicos,
+        c.produtos.where((i) => i.id != itemId).toList(),
+        c.descontoCentavos,
+      ),
+    );
+  }
+
+  // ---------------- Cancelamento ----------------
 
   /// Cancela sem apagar: o histórico fica registrado.
   Future<void> cancelar(
