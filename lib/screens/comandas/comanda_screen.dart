@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../config/parametros.dart';
 import '../../config/tema.dart';
 import '../../models/comanda.dart';
 import '../../models/perfil_usuario.dart';
@@ -8,7 +9,9 @@ import '../../repositories/comanda_repository.dart';
 import '../../utils/datas.dart';
 import '../../utils/dinheiro.dart';
 import '../../utils/erros.dart';
+import '../../utils/percentual.dart';
 import 'comanda_dialogos.dart';
+import 'dialogo_desconto.dart';
 
 class ComandaScreen extends StatelessWidget {
   final String comandaId;
@@ -16,6 +19,12 @@ class ComandaScreen extends StatelessWidget {
   final ComandaRepository _repo = ComandaRepository();
 
   ComandaScreen({super.key, required this.comandaId, required this.perfil});
+
+  void _aviso(BuildContext context, String texto) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(texto)),
+    );
+  }
 
   Future<void> _executar(
     BuildContext context,
@@ -25,9 +34,7 @@ class ComandaScreen extends StatelessWidget {
       await acao();
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(mensagemDeErro(e))),
-      );
+      _aviso(context, mensagemDeErro(e));
     }
   }
 
@@ -69,6 +76,39 @@ class ComandaScreen extends StatelessWidget {
     await _executar(context, () => _repo.ajustarPreco(c.id, item.id, novo));
   }
 
+  Future<void> _desconto(BuildContext context, Comanda c) async {
+    final livre = perfil.permissaoTotal
+        ? 10000
+        : (c.descontoAprovadoBp > limiteDescontoSemAutorizacaoBp
+            ? c.descontoAprovadoBp
+            : limiteDescontoSemAutorizacaoBp);
+
+    final bp = await showDialog<int>(
+      context: context,
+      builder: (_) => DialogDesconto(
+        atualBp: c.descontoBp,
+        subtotalServicosCentavos: c.subtotalServicosCentavos,
+        limiteLivreBp: livre,
+      ),
+    );
+
+    if (bp == null || !context.mounted) return;
+
+    if (bp <= livre) {
+      await _executar(context, () => _repo.aplicarDesconto(c.id, bp, perfil));
+      return;
+    }
+
+    try {
+      await _repo.solicitarDesconto(c.id, bp, perfil);
+      if (!context.mounted) return;
+      _aviso(context, 'Pedido enviado ao administrador.');
+    } catch (e) {
+      if (!context.mounted) return;
+      _aviso(context, mensagemDeErro(e));
+    }
+  }
+
   Future<void> _cancelar(BuildContext context, Comanda c) async {
     final motivo = await showDialog<String>(
       context: context,
@@ -82,9 +122,7 @@ class ComandaScreen extends StatelessWidget {
       if (context.mounted) Navigator.pop(context);
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(mensagemDeErro(e))),
-      );
+      _aviso(context, mensagemDeErro(e));
     }
   }
 
@@ -154,6 +192,12 @@ class ComandaScreen extends StatelessWidget {
                         destaque: true,
                       ),
                     ],
+                    if (c.servicos.isNotEmpty || c.descontoBp > 0) ...[
+                      const SizedBox(height: 24),
+                      _titulo('DESCONTO'),
+                      const SizedBox(height: 10),
+                      _secaoDesconto(context, c),
+                    ],
                     if (c.produtos.isNotEmpty || c.aberta) ...[
                       const SizedBox(height: 24),
                       _titulo('PRODUTOS'),
@@ -177,8 +221,7 @@ class ComandaScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 18),
                       const Text(
-                        'Desconto e pagamento serão ativados '
-                        'nas próximas partes desta etapa.',
+                        'O pagamento será ativado na próxima parte desta etapa.',
                         style: TextStyle(color: Colors.white38, fontSize: 12),
                       ),
                     ],
@@ -204,7 +247,12 @@ class ComandaScreen extends StatelessWidget {
     );
   }
 
-  Widget _botao(String texto, VoidCallback onPressed, {bool destaque = false}) {
+  Widget _botao(
+    String texto,
+    VoidCallback onPressed, {
+    bool destaque = false,
+    IconData icone = Icons.add,
+  }) {
     return SizedBox(
       height: 50,
       child: destaque
@@ -217,7 +265,7 @@ class ComandaScreen extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              icon: const Icon(Icons.add),
+              icon: Icon(icone),
               label: Text(
                 texto,
                 style: const TextStyle(fontWeight: FontWeight.bold),
@@ -232,12 +280,152 @@ class ComandaScreen extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              icon: const Icon(Icons.add),
+              icon: Icon(icone),
               label: Text(
                 texto,
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
+    );
+  }
+
+  Widget _secaoDesconto(BuildContext context, Comanda c) {
+    final admin = perfil.permissaoTotal;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: cartao,
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(color: bordaCartao),
+          ),
+          child: c.descontoBp > 0
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${bpParaTexto(c.descontoBp)} de desconto '
+                      '(− ${Dinheiro.formatar(c.descontoCentavos)})',
+                      style: const TextStyle(
+                        color: dourado,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'Sobre os serviços: '
+                      '${Dinheiro.formatar(c.subtotalServicosCentavos)}',
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 12,
+                      ),
+                    ),
+                    if (c.descontoAprovadoBp > limiteDescontoSemAutorizacaoBp &&
+                        c.descontoDecididoPorNome.isNotEmpty)
+                      Text(
+                        'Autorizado por ${c.descontoDecididoPorNome}',
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 12,
+                        ),
+                      ),
+                  ],
+                )
+              : const Text(
+                  'Sem desconto.',
+                  style: TextStyle(color: Colors.white54),
+                ),
+        ),
+        if (c.descontoPendente) ...[
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: cartao,
+              borderRadius: BorderRadius.circular(13),
+              border: Border.all(color: Colors.orangeAccent),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  admin
+                      ? '${c.descontoSolicitadoPorNome} pede '
+                          '${bpParaTexto(c.descontoSolicitadoBp)} de desconto.'
+                      : 'Aguardando autorização do administrador: '
+                          '${bpParaTexto(c.descontoSolicitadoBp)}.',
+                  style: const TextStyle(
+                    color: Colors.orangeAccent,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                if (admin)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => _executar(
+                            context,
+                            () => _repo.decidirDesconto(c.id, false, perfil),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.redAccent,
+                            side: const BorderSide(color: Colors.redAccent),
+                          ),
+                          child: const Text('RECUSAR'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => _executar(
+                            context,
+                            () => _repo.decidirDesconto(c.id, true, perfil),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: dourado,
+                            foregroundColor: Colors.black,
+                          ),
+                          child: const Text('APROVAR'),
+                        ),
+                      ),
+                    ],
+                  )
+                else
+                  TextButton(
+                    onPressed: () => _executar(
+                      context,
+                      () => _repo.cancelarSolicitacao(c.id),
+                    ),
+                    child: const Text('CANCELAR PEDIDO'),
+                  ),
+              ],
+            ),
+          ),
+        ],
+        if (c.descontoRecusado) ...[
+          const SizedBox(height: 10),
+          Text(
+            'Pedido de ${bpParaTexto(c.descontoSolicitadoBp)} recusado'
+            '${c.descontoDecididoPorNome.isEmpty ? '' : ' por ${c.descontoDecididoPorNome}'}.',
+            style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+          ),
+        ],
+        if (c.aberta && !c.descontoPendente && c.servicos.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          _botao(
+            c.descontoBp > 0 ? 'ALTERAR DESCONTO' : 'APLICAR DESCONTO',
+            () => _desconto(context, c),
+            icone: Icons.percent,
+          ),
+        ],
+      ],
     );
   }
 
@@ -463,6 +651,8 @@ class ComandaScreen extends StatelessWidget {
   }
 
   Widget _barraTotal(Comanda c) {
+    final detalhado = c.subtotalProdutosCentavos > 0 || c.descontoCentavos > 0;
+
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
       decoration: const BoxDecoration(
@@ -474,10 +664,20 @@ class ComandaScreen extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (c.subtotalProdutosCentavos > 0) ...[
+            if (detalhado) ...[
               _linhaValor('Serviços', c.subtotalServicosCentavos),
-              const SizedBox(height: 2),
-              _linhaValor('Produtos', c.subtotalProdutosCentavos),
+              if (c.subtotalProdutosCentavos > 0) ...[
+                const SizedBox(height: 2),
+                _linhaValor('Produtos', c.subtotalProdutosCentavos),
+              ],
+              if (c.descontoCentavos > 0) ...[
+                const SizedBox(height: 2),
+                _linhaValor(
+                  'Desconto (${bpParaTexto(c.descontoBp)})',
+                  c.descontoCentavos,
+                  negativo: true,
+                ),
+              ],
               const SizedBox(height: 8),
             ],
             Row(
@@ -507,7 +707,7 @@ class ComandaScreen extends StatelessWidget {
     );
   }
 
-  Widget _linhaValor(String rotulo, int centavos) {
+  Widget _linhaValor(String rotulo, int centavos, {bool negativo = false}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -516,8 +716,11 @@ class ComandaScreen extends StatelessWidget {
           style: const TextStyle(color: Colors.white54, fontSize: 13),
         ),
         Text(
-          Dinheiro.formatar(centavos),
-          style: const TextStyle(color: Colors.white70, fontSize: 13),
+          '${negativo ? '− ' : ''}${Dinheiro.formatar(centavos)}',
+          style: TextStyle(
+            color: negativo ? Colors.orangeAccent : Colors.white70,
+            fontSize: 13,
+          ),
         ),
       ],
     );
