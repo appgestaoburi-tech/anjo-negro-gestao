@@ -1,16 +1,14 @@
 import 'package:flutter/material.dart';
-import '../../config/catalogo_inicial.dart';
 import '../../config/tema.dart';
 import '../../models/comanda.dart';
 import '../../models/perfil_usuario.dart';
 import '../../models/produto.dart';
 import '../../models/servico.dart';
 import '../../repositories/comanda_repository.dart';
-import '../../repositories/produto_repository.dart';
-import '../../repositories/servico_repository.dart';
 import '../../utils/datas.dart';
 import '../../utils/dinheiro.dart';
 import '../../utils/erros.dart';
+import 'comanda_dialogos.dart';
 
 class ComandaScreen extends StatelessWidget {
   final String comandaId;
@@ -38,7 +36,7 @@ class ComandaScreen extends StatelessWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: cartao,
-      builder: (_) => const _SeletorServico(),
+      builder: (_) => const SeletorServico(),
     );
 
     if (servico == null || !context.mounted) return;
@@ -50,7 +48,7 @@ class ComandaScreen extends StatelessWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: cartao,
-      builder: (_) => const _SeletorProduto(),
+      builder: (_) => const SeletorProduto(),
     );
 
     if (produto == null || !context.mounted) return;
@@ -64,7 +62,7 @@ class ComandaScreen extends StatelessWidget {
   ) async {
     final novo = await showDialog<int>(
       context: context,
-      builder: (_) => _DialogPreco(item: item),
+      builder: (_) => DialogPreco(item: item),
     );
 
     if (novo == null || !context.mounted) return;
@@ -74,7 +72,7 @@ class ComandaScreen extends StatelessWidget {
   Future<void> _cancelar(BuildContext context, Comanda c) async {
     final motivo = await showDialog<String>(
       context: context,
-      builder: (_) => const _DialogCancelar(),
+      builder: (_) => const DialogCancelar(),
     );
 
     if (motivo == null || !context.mounted) return;
@@ -525,85 +523,3 @@ class ComandaScreen extends StatelessWidget {
     );
   }
 }
-
-class _SeletorServico extends StatelessWidget {
-  const _SeletorServico();
-
-  @override
-  Widget build(BuildContext context) {
-    final altura = MediaQuery.of(context).size.height * 0.75;
-
-    return SizedBox(
-      height: altura,
-      child: Column(
-        children: [
-          const Padding(
-            padding: EdgeInsets.all(16),
-            child: Text(
-              'ESCOLHA O SERVIÇO',
-              style: TextStyle(
-                color: dourado,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 2,
-              ),
-            ),
-          ),
-          Expanded(
-            child: StreamBuilder<List<Servico>>(
-              stream: ServicoRepository().observar(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(color: dourado),
-                  );
-                }
-
-                if (snapshot.hasError) {
-                  return const Center(
-                    child: Text('Erro ao carregar o catálogo.'),
-                  );
-                }
-
-                final lista =
-                    (snapshot.data ?? []).where((s) => s.ativo).toList();
-
-                if (lista.isEmpty) {
-                  return const Center(
-                    child: Text('Nenhum serviço ativo no catálogo.'),
-                  );
-                }
-
-                final categorias = <String>[
-                  ...categoriasServicos,
-                  ...lista
-                      .map((s) => s.categoria)
-                      .where((cat) => !categoriasServicos.contains(cat))
-                      .toSet(),
-                ];
-
-                final widgets = <Widget>[];
-
-                for (final cat in categorias) {
-                  final itens = lista.where((s) => s.categoria == cat).toList();
-                  if (itens.isEmpty) continue;
-
-                  widgets.add(
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
-                      child: Text(
-                        cat.toUpperCase(),
-                        style: const TextStyle(
-                          color: Colors.white54,
-                          fontSize: 12,
-                          letterSpacing: 1.5,
-                        ),
-                      ),
-                    ),
-                  );
-
-                  for (final s in itens) {
-                    widgets.add(
-                      ListTile(
-                        title: Text(s.nome),
-                        subtitle: s.aPartir ? const Text('A partir de') : null,
-                        trailing
