@@ -12,6 +12,7 @@ import '../../utils/erros.dart';
 import '../../utils/percentual.dart';
 import 'comanda_dialogos.dart';
 import 'dialogo_desconto.dart';
+import 'secao_pagamento.dart';
 
 class ComandaScreen extends StatelessWidget {
   final String comandaId;
@@ -219,12 +220,13 @@ class ComandaScreen extends StatelessWidget {
                         'ADICIONAR PRODUTO',
                         () => _adicionarProduto(context, c),
                       ),
-                      const SizedBox(height: 18),
-                      const Text(
-                        'O pagamento será ativado na próxima parte desta etapa.',
-                        style: TextStyle(color: Colors.white38, fontSize: 12),
-                      ),
                     ],
+                    SecaoPagamento(
+                      key: ValueKey('pag-${c.id}'),
+                      comanda: c,
+                      perfil: perfil,
+                    ),
+                    const SizedBox(height: 12),
                   ],
                 ),
               ),
@@ -701,6 +703,14 @@ class ComandaScreen extends StatelessWidget {
                 ),
               ],
             ),
+            if (c.pagoCentavos > 0) ...[
+              const SizedBox(height: 6),
+              _linhaValor('Pago', c.pagoCentavos),
+              if (c.saldoCentavos > 0) ...[
+                const SizedBox(height: 2),
+                _linhaValor('Saldo a receber', c.saldoCentavos),
+              ],
+            ],
           ],
         ),
       ),
