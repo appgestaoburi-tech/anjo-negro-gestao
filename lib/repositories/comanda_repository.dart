@@ -1,9 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../config/parametros.dart';
 import '../models/cliente.dart';
 import '../models/comanda.dart';
 import '../models/perfil_usuario.dart';
 import '../models/produto.dart';
 import '../models/servico.dart';
+import '../utils/percentual.dart';
 
 class ComandaRepository {
   ComandaRepository({FirebaseFirestore? firestore})
@@ -27,6 +29,19 @@ class ComandaRepository {
     }
 
     return consulta.snapshots().map((snap) {
+      final lista = snap.docs.map(Comanda.doDocumento).toList();
+      lista.sort((a, b) => b.numero.compareTo(a.numero));
+      return lista;
+    });
+  }
+
+  /// Comandas abertas com pedido de desconto aguardando o administrador.
+  Stream<List<Comanda>> observarPendentes() {
+    return _col
+        .where('status', isEqualTo: 'aberta')
+        .where('descontoStatus', isEqualTo: 'pendente')
+        .snapshots()
+        .map((snap) {
       final lista = snap.docs.map(Comanda.doDocumento).toList();
       lista.sort((a, b) => b.numero.compareTo(a.numero));
       return lista;
@@ -67,7 +82,11 @@ class ComandaRepository {
         'produtos': <Map<String, dynamic>>[],
         'subtotalServicosCentavos': 0,
         'subtotalProdutosCentavos': 0,
+        'descontoBp': 0,
         'descontoCentavos': 0,
+        'descontoAprovadoBp': 0,
+        'descontoStatus': '',
+        'descontoSolicitadoBp': 0,
         'totalCentavos': 0,
         'pagoCentavos': 0,
         'criadoEm': FieldValue.serverTimestamp(),
@@ -78,21 +97,24 @@ class ComandaRepository {
     return novaRef.id;
   }
 
-  /// Recalcula subtotais e total a partir das listas de itens.
+  /// Recalcula subtotais, desconto (só sobre serviços) e total.
   Map<String, dynamic> _camposAtualizados(
     List<ItemComanda> servicos,
     List<ItemProduto> produtos,
-    int descontoCentavos,
+    int descontoBp,
   ) {
     final subServicos = servicos.fold<int>(0, (s, i) => s + i.precoCentavos);
     final subProdutos = produtos.fold<int>(0, (s, i) => s + i.totalCentavos);
+    final desconto = (subServicos * descontoBp + 5000) ~/ 10000;
 
     return {
       'servicos': servicos.map((i) => i.paraMapa()).toList(),
       'produtos': produtos.map((i) => i.paraMapa()).toList(),
       'subtotalServicosCentavos': subServicos,
       'subtotalProdutosCentavos': subProdutos,
-      'totalCentavos': subServicos + subProdutos - descontoCentavos,
+      'descontoBp': descontoBp,
+      'descontoCentavos': desconto,
+      'totalCentavos': subServicos + subProdutos - desconto,
       'atualizadoEm': FieldValue.serverTimestamp(),
     };
   }
@@ -132,20 +154,20 @@ class ComandaRepository {
       (c) => _camposAtualizados(
         [...c.servicos, item],
         c.produtos,
-        c.descontoCentavos,
+        c.descontoBp,
       ),
     );
   }
 
   Future<void> removerServico(String comandaId, String itemId) {
-    return _alterar(
-      comandaId,
-      (c) => _camposAtualizados(
-        c.servicos.where((i) => i.id != itemId).toList(),
+    return _alterar(comandaId, (c) {
+      final servicos = c.servicos.where((i) => i.id != itemId).toList();
+      return _camposAtualizados(
+        servicos,
         c.produtos,
-        c.descontoCentavos,
-      ),
-    );
+        servicos.isEmpty ? 0 : c.descontoBp,
+      );
+    });
   }
 
   /// Só serviços "a partir de" podem ter o preço alterado, e só para cima.
@@ -160,7 +182,127 @@ class ComandaRepository {
         return i.comPreco(novo);
       }).toList();
 
-      return _camposAtualizados(servicos, c.produtos, c.descontoCentavos);
+      return _camposAtualizados(servicos, c.produtos, c.descontoBp);
+    });
+  }
+
+  // ---------------- Desconto ----------------
+
+  /// Aplica o desconto na hora. O colaborador só pode até o limite livre
+  /// ou o percentual já autorizado; o administrador pode qualquer valor.
+  Future<void> aplicarDesconto(
+    String comandaId,
+    int bp,
+    PerfilUsuario perfil,
+  ) {
+    return _alterar(comandaId, (c) {
+      if (bp < 0 || bp > 10000) {
+        throw Exception('Percentual de desconto inválido.');
+      }
+      if (bp > 0 && c.servicos.isEmpty) {
+        throw Exception('Adicione um serviço antes de aplicar desconto.');
+      }
+
+      final admin = perfil.permissaoTotal;
+      final liberado =
+          bp <= limiteDescontoSemAutorizacaoBp || bp <= c.descontoAprovadoBp;
+
+      if (!admin && !liberado) {
+        throw Exception(
+          'Desconto acima de ${bpParaTexto(limiteDescontoSemAutorizacaoBp)} '
+          'precisa de autorização do administrador.',
+        );
+      }
+
+      final campos = _camposAtualizados(c.servicos, c.produtos, bp);
+
+      if (admin &&
+          bp > limiteDescontoSemAutorizacaoBp &&
+          bp > c.descontoAprovadoBp) {
+        campos['descontoAprovadoBp'] = bp;
+        campos['descontoStatus'] = 'aprovado';
+        campos['descontoDecididoPorUid'] = perfil.uid;
+        campos['descontoDecididoPorNome'] = perfil.nome;
+        campos['descontoDecididoEm'] = FieldValue.serverTimestamp();
+      }
+
+      return campos;
+    });
+  }
+
+  /// Pede autorização ao administrador para um desconto acima do limite.
+  Future<void> solicitarDesconto(
+    String comandaId,
+    int bp,
+    PerfilUsuario perfil,
+  ) {
+    return _alterar(comandaId, (c) {
+      if (bp <= limiteDescontoSemAutorizacaoBp || bp > 10000) {
+        throw Exception('Pedido de autorização inválido.');
+      }
+      if (c.servicos.isEmpty) {
+        throw Exception('Adicione um serviço antes de pedir desconto.');
+      }
+
+      return <String, dynamic>{
+        'descontoStatus': 'pendente',
+        'descontoSolicitadoBp': bp,
+        'descontoSolicitadoPorNome': perfil.nome,
+        'atualizadoEm': FieldValue.serverTimestamp(),
+      };
+    });
+  }
+
+  Future<void> cancelarSolicitacao(String comandaId) {
+    return _alterar(comandaId, (c) {
+      if (!c.descontoPendente) return <String, dynamic>{};
+      return <String, dynamic>{
+        'descontoStatus': '',
+        'descontoSolicitadoBp': 0,
+        'atualizadoEm': FieldValue.serverTimestamp(),
+      };
+    });
+  }
+
+  /// Só o administrador decide (e o Firebase também exige isso).
+  Future<void> decidirDesconto(
+    String comandaId,
+    bool aprovar,
+    PerfilUsuario perfil,
+  ) {
+    if (!perfil.permissaoTotal) {
+      return Future.error(
+        Exception('Somente o administrador pode autorizar descontos.'),
+      );
+    }
+
+    return _alterar(comandaId, (c) {
+      if (!c.descontoPendente) {
+        throw Exception('Não há pedido pendente nesta comanda.');
+      }
+
+      final decisao = <String, dynamic>{
+        'descontoDecididoPorUid': perfil.uid,
+        'descontoDecididoPorNome': perfil.nome,
+        'descontoDecididoEm': FieldValue.serverTimestamp(),
+      };
+
+      if (!aprovar) {
+        return <String, dynamic>{
+          ...decisao,
+          'descontoStatus': 'recusado',
+          'atualizadoEm': FieldValue.serverTimestamp(),
+        };
+      }
+
+      final bp = c.descontoSolicitadoBp;
+
+      return <String, dynamic>{
+        ..._camposAtualizados(c.servicos, c.produtos, bp),
+        ...decisao,
+        'descontoStatus': 'aprovado',
+        'descontoAprovadoBp': bp,
+      };
     });
   }
 
@@ -219,7 +361,7 @@ class ComandaRepository {
 
       tx.update(
         comandaRef,
-        _camposAtualizados(c.servicos, produtos, c.descontoCentavos),
+        _camposAtualizados(c.servicos, produtos, c.descontoBp),
       );
     });
   }
@@ -261,7 +403,7 @@ class ComandaRepository {
 
       tx.update(
         comandaRef,
-        _camposAtualizados(c.servicos, produtos, c.descontoCentavos),
+        _camposAtualizados(c.servicos, produtos, c.descontoBp),
       );
     });
   }
@@ -272,7 +414,7 @@ class ComandaRepository {
       (c) => _camposAtualizados(
         c.servicos,
         c.produtos.where((i) => i.id != itemId).toList(),
-        c.descontoCentavos,
+        c.descontoBp,
       ),
     );
   }
