@@ -5,6 +5,8 @@ import '../models/comanda.dart';
 import '../models/perfil_usuario.dart';
 import '../models/produto.dart';
 import '../models/servico.dart';
+import '../utils/datas.dart';
+import '../utils/dinheiro.dart';
 import '../utils/percentual.dart';
 
 class ComandaRepository {
@@ -19,6 +21,12 @@ class ComandaRepository {
   CollectionReference<Map<String, dynamic>> get _produtos =>
       _firestore.collection('produtos');
 
+  List<Comanda> _ordenar(QuerySnapshot<Map<String, dynamic>> snap) {
+    final lista = snap.docs.map(Comanda.doDocumento).toList();
+    lista.sort((a, b) => b.numero.compareTo(a.numero));
+    return lista;
+  }
+
   /// Administrador vê todas as abertas; os demais, só as próprias.
   Stream<List<Comanda>> observarAbertas(PerfilUsuario perfil) {
     Query<Map<String, dynamic>> consulta =
@@ -28,11 +36,20 @@ class ComandaRepository {
       consulta = consulta.where('barbeiroUid', isEqualTo: perfil.uid);
     }
 
-    return consulta.snapshots().map((snap) {
-      final lista = snap.docs.map(Comanda.doDocumento).toList();
-      lista.sort((a, b) => b.numero.compareTo(a.numero));
-      return lista;
-    });
+    return consulta.snapshots().map(_ordenar);
+  }
+
+  /// Comandas finalizadas hoje (administrador: todas; demais: as próprias).
+  Stream<List<Comanda>> observarPagasHoje(PerfilUsuario perfil) {
+    Query<Map<String, dynamic>> consulta = _col
+        .where('status', isEqualTo: 'paga')
+        .where('finalizadaDia', isEqualTo: diaIso(DateTime.now()));
+
+    if (!perfil.permissaoTotal) {
+      consulta = consulta.where('barbeiroUid', isEqualTo: perfil.uid);
+    }
+
+    return consulta.snapshots().map(_ordenar);
   }
 
   /// Comandas abertas com pedido de desconto aguardando o administrador.
@@ -41,11 +58,7 @@ class ComandaRepository {
         .where('status', isEqualTo: 'aberta')
         .where('descontoStatus', isEqualTo: 'pendente')
         .snapshots()
-        .map((snap) {
-      final lista = snap.docs.map(Comanda.doDocumento).toList();
-      lista.sort((a, b) => b.numero.compareTo(a.numero));
-      return lista;
-    });
+        .map(_ordenar);
   }
 
   Stream<Comanda?> observarUma(String id) {
@@ -98,14 +111,25 @@ class ComandaRepository {
   }
 
   /// Recalcula subtotais, desconto (só sobre serviços) e total.
+  /// O total nunca pode ficar abaixo do que já foi pago.
   Map<String, dynamic> _camposAtualizados(
     List<ItemComanda> servicos,
     List<ItemProduto> produtos,
     int descontoBp,
+    int pagoCentavos,
   ) {
     final subServicos = servicos.fold<int>(0, (s, i) => s + i.precoCentavos);
     final subProdutos = produtos.fold<int>(0, (s, i) => s + i.totalCentavos);
     final desconto = (subServicos * descontoBp + 5000) ~/ 10000;
+    final total = subServicos + subProdutos - desconto;
+
+    if (total < pagoCentavos) {
+      throw Exception(
+        'O total da comanda não pode ficar menor que o valor já pago '
+        '(${Dinheiro.formatar(pagoCentavos)}). Peça ao administrador para '
+        'estornar o pagamento.',
+      );
+    }
 
     return {
       'servicos': servicos.map((i) => i.paraMapa()).toList(),
@@ -114,7 +138,7 @@ class ComandaRepository {
       'subtotalProdutosCentavos': subProdutos,
       'descontoBp': descontoBp,
       'descontoCentavos': desconto,
-      'totalCentavos': subServicos + subProdutos - desconto,
+      'totalCentavos': total,
       'atualizadoEm': FieldValue.serverTimestamp(),
     };
   }
@@ -155,6 +179,7 @@ class ComandaRepository {
         [...c.servicos, item],
         c.produtos,
         c.descontoBp,
+        c.pagoCentavos,
       ),
     );
   }
@@ -166,6 +191,7 @@ class ComandaRepository {
         servicos,
         c.produtos,
         servicos.isEmpty ? 0 : c.descontoBp,
+        c.pagoCentavos,
       );
     });
   }
@@ -182,7 +208,12 @@ class ComandaRepository {
         return i.comPreco(novo);
       }).toList();
 
-      return _camposAtualizados(servicos, c.produtos, c.descontoBp);
+      return _camposAtualizados(
+        servicos,
+        c.produtos,
+        c.descontoBp,
+        c.pagoCentavos,
+      );
     });
   }
 
@@ -214,7 +245,8 @@ class ComandaRepository {
         );
       }
 
-      final campos = _camposAtualizados(c.servicos, c.produtos, bp);
+      final campos =
+          _camposAtualizados(c.servicos, c.produtos, bp, c.pagoCentavos);
 
       if (admin &&
           bp > limiteDescontoSemAutorizacaoBp &&
@@ -298,7 +330,7 @@ class ComandaRepository {
       final bp = c.descontoSolicitadoBp;
 
       return <String, dynamic>{
-        ..._camposAtualizados(c.servicos, c.produtos, bp),
+        ..._camposAtualizados(c.servicos, c.produtos, bp, c.pagoCentavos),
         ...decisao,
         'descontoStatus': 'aprovado',
         'descontoAprovadoBp': bp,
@@ -308,7 +340,6 @@ class ComandaRepository {
 
   // ---------------- Produtos ----------------
 
-  /// Confere a quantidade desejada contra o estoque atual do produto.
   void _validarEstoque(Produto p, int desejada) {
     if (!p.ativo) throw Exception('Este produto está desativado.');
     if (p.estoqueQtd <= 0) throw Exception('Produto sem estoque.');
@@ -320,8 +351,7 @@ class ComandaRepository {
     }
   }
 
-  /// O estoque NÃO é alterado aqui: a baixa acontece só na finalização.
-  /// A conferência usa o estoque atual lido do servidor.
+  /// O estoque NÃO é alterado aqui: a baixa acontece só no pagamento final.
   Future<void> adicionarProduto(String comandaId, Produto p) async {
     await _firestore.runTransaction((tx) async {
       final comandaRef = _col.doc(comandaId);
@@ -361,7 +391,12 @@ class ComandaRepository {
 
       tx.update(
         comandaRef,
-        _camposAtualizados(c.servicos, produtos, c.descontoBp),
+        _camposAtualizados(
+          c.servicos,
+          produtos,
+          c.descontoBp,
+          c.pagoCentavos,
+        ),
       );
     });
   }
@@ -403,7 +438,12 @@ class ComandaRepository {
 
       tx.update(
         comandaRef,
-        _camposAtualizados(c.servicos, produtos, c.descontoBp),
+        _camposAtualizados(
+          c.servicos,
+          produtos,
+          c.descontoBp,
+          c.pagoCentavos,
+        ),
       );
     });
   }
@@ -415,6 +455,7 @@ class ComandaRepository {
         c.servicos,
         c.produtos.where((i) => i.id != itemId).toList(),
         c.descontoBp,
+        c.pagoCentavos,
       ),
     );
   }
@@ -437,7 +478,8 @@ class ComandaRepository {
       if (!c.aberta) throw Exception('Esta comanda não está mais aberta.');
       if (c.pagoCentavos > 0) {
         throw Exception(
-          'Não é possível cancelar uma comanda com pagamento registrado.',
+          'Não é possível cancelar uma comanda com pagamento registrado. '
+          'Peça ao administrador para estornar o pagamento.',
         );
       }
 
