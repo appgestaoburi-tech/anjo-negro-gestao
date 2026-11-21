@@ -4,6 +4,7 @@ import '../config/tema.dart';
 import '../models/perfil_usuario.dart';
 import '../widgets/aniversariantes_card.dart';
 import '../widgets/cards_painel.dart';
+import '../widgets/cartao_autorizacoes.dart';
 import '../widgets/indicador_comandas_abertas.dart';
 import 'catalogo/catalogo_screen.dart';
 import 'clientes/clientes_screen.dart';
@@ -85,6 +86,10 @@ class PainelScreen extends StatelessWidget {
                   ),
                 ],
               ),
+              if (perfil.permissaoTotal) ...[
+                const SizedBox(height: 14),
+                CartaoAutorizacoes(perfil: perfil),
+              ],
               const SizedBox(height: 14),
               const AniversariantesCard(),
               const SizedBox(height: 28),
