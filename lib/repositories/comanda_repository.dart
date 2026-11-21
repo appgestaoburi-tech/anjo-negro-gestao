@@ -14,6 +14,9 @@ class ComandaRepository {
   CollectionReference<Map<String, dynamic>> get _col =>
       _firestore.collection('comandas');
 
+  CollectionReference<Map<String, dynamic>> get _produtos =>
+      _firestore.collection('produtos');
+
   /// Administrador vê todas as abertas; os demais, só as próprias.
   Stream<List<Comanda>> observarAbertas(PerfilUsuario perfil) {
     Query<Map<String, dynamic>> consulta =
@@ -163,43 +166,90 @@ class ComandaRepository {
 
   // ---------------- Produtos ----------------
 
+  /// Confere a quantidade desejada contra o estoque atual do produto.
+  void _validarEstoque(Produto p, int desejada) {
+    if (!p.ativo) throw Exception('Este produto está desativado.');
+    if (p.estoqueQtd <= 0) throw Exception('Produto sem estoque.');
+    if (desejada > p.estoqueQtd) {
+      throw Exception(
+        'Estoque insuficiente: há apenas ${p.estoqueQtd} '
+        'unidade(s) de ${p.nome}.',
+      );
+    }
+  }
+
   /// O estoque NÃO é alterado aqui: a baixa acontece só na finalização.
-  Future<void> adicionarProduto(String comandaId, Produto p) {
-    return _alterar(comandaId, (c) {
-      if (!p.ativo) throw Exception('Este produto está desativado.');
-      if (p.estoqueQtd <= 0) throw Exception('Produto sem estoque.');
+  /// A conferência usa o estoque atual lido do servidor.
+  Future<void> adicionarProduto(String comandaId, Produto p) async {
+    await _firestore.runTransaction((tx) async {
+      final comandaRef = _col.doc(comandaId);
+      final produtoRef = _produtos.doc(p.id);
+
+      final comandaSnap = await tx.get(comandaRef);
+      final produtoSnap = await tx.get(produtoRef);
+
+      if (!comandaSnap.exists) throw Exception('Comanda não encontrada.');
+      if (!produtoSnap.exists) throw Exception('Produto não encontrado.');
+
+      final c = Comanda.doDocumento(comandaSnap);
+      final atual = Produto.doDocumento(produtoSnap);
+
+      if (!c.aberta) throw Exception('Esta comanda não está mais aberta.');
 
       final produtos = [...c.produtos];
-      final indice = produtos.indexWhere((x) => x.produtoId == p.id);
+      final indice = produtos.indexWhere((x) => x.produtoId == atual.id);
+      final quantidadeAtual = indice >= 0 ? produtos[indice].quantidade : 0;
+
+      _validarEstoque(atual, quantidadeAtual + 1);
 
       if (indice >= 0) {
-        final nova = produtos[indice].quantidade + 1;
-        if (nova > p.estoqueQtd) {
-          throw Exception('Quantidade maior que o estoque disponível.');
-        }
-        produtos[indice] = produtos[indice].comQuantidade(nova);
+        produtos[indice] =
+            produtos[indice].comQuantidade(quantidadeAtual + 1);
       } else {
         produtos.add(
           ItemProduto(
             id: _col.doc().id,
-            produtoId: p.id,
-            nome: p.nome,
-            precoCentavos: p.precoVendaCentavos,
+            produtoId: atual.id,
+            nome: atual.nome,
+            precoCentavos: atual.precoVendaCentavos,
             quantidade: 1,
           ),
         );
       }
 
-      return _camposAtualizados(c.servicos, produtos, c.descontoCentavos);
+      tx.update(
+        comandaRef,
+        _camposAtualizados(c.servicos, produtos, c.descontoCentavos),
+      );
     });
   }
 
+  /// Aumentar a quantidade exige estoque suficiente; diminuir é sempre livre.
   Future<void> alterarQuantidadeProduto(
     String comandaId,
     String itemId,
     int quantidade,
-  ) {
-    return _alterar(comandaId, (c) {
+  ) async {
+    await _firestore.runTransaction((tx) async {
+      final comandaRef = _col.doc(comandaId);
+      final comandaSnap = await tx.get(comandaRef);
+
+      if (!comandaSnap.exists) throw Exception('Comanda não encontrada.');
+
+      final c = Comanda.doDocumento(comandaSnap);
+      if (!c.aberta) throw Exception('Esta comanda não está mais aberta.');
+
+      final indice = c.produtos.indexWhere((i) => i.id == itemId);
+      if (indice < 0) throw Exception('Produto não encontrado na comanda.');
+
+      final item = c.produtos[indice];
+
+      if (quantidade > item.quantidade) {
+        final produtoSnap = await tx.get(_produtos.doc(item.produtoId));
+        if (!produtoSnap.exists) throw Exception('Produto não encontrado.');
+        _validarEstoque(Produto.doDocumento(produtoSnap), quantidade);
+      }
+
       final produtos = <ItemProduto>[];
       for (final i in c.produtos) {
         if (i.id != itemId) {
@@ -208,7 +258,11 @@ class ComandaRepository {
           produtos.add(i.comQuantidade(quantidade));
         }
       }
-      return _camposAtualizados(c.servicos, produtos, c.descontoCentavos);
+
+      tx.update(
+        comandaRef,
+        _camposAtualizados(c.servicos, produtos, c.descontoCentavos),
+      );
     });
   }
 
