@@ -41,7 +41,10 @@ class _SecaoPagamentoState extends State<SecaoPagamento> {
 
     final r = await showDialog<ResultadoPagamento>(
       context: context,
-      builder: (_) => DialogPagamento(saldoCentavos: c.saldoCentavos),
+       builder: (_) => DialogPagamento(
+        saldoCentavos: c.saldoCentavos,
+        comandaNumero: c.numero,
+      ),
     );
 
     if (r == null || !mounted) return;
