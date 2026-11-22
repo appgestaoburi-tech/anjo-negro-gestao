@@ -97,6 +97,13 @@ class PagamentoRepository {
         );
       }
 
+            if (forma == 'dinheiro' && valorCentavos != c.saldoCentavos) {
+        throw Exception(
+          'O pagamento em dinheiro deve quitar todo o saldo '
+          '(${Dinheiro.formatar(c.saldoCentavos)}). '
+          'Para pagar parcialmente, use Pix ou cartão.',
+        );
+            }
       final novoPago = c.pagoCentavos + valorCentavos;
       final quita = novoPago == c.totalCentavos;
 
