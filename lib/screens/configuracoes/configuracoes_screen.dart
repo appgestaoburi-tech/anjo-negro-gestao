@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../config/tema.dart';
 import '../../repositories/configuracao_repository.dart';
+import '../../utils/chave_pix.dart';
 import '../../utils/erros.dart';
 import '../../utils/pix_payload.dart';
 import '../comandas/dialogo_pix_qr.dart';
@@ -19,6 +20,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
   final _nome = TextEditingController();
   final _cidade = TextEditingController();
 
+  String _tipo = 'telefone';
   bool _carregando = true;
   bool _salvando = false;
   String? _erro;
@@ -46,6 +48,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
           _chave.text = cfg.chave;
           _nome.text = cfg.nome;
           _cidade.text = cfg.cidade;
+          _tipo = tipoDaChave(cfg.chave);
         }
         _carregando = false;
       });
@@ -58,17 +61,28 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
     }
   }
 
+  TextInputType get _teclado {
+    if (_tipo == 'email') return TextInputType.emailAddress;
+    if (_tipo == 'aleatoria') return TextInputType.text;
+    return TextInputType.phone;
+  }
+
+  TipoChavePix get _tipoAtual =>
+      tiposChavePix.firstWhere((t) => t.chave == _tipo);
+
   Future<void> _salvar() async {
-    final chave = _chave.text.trim();
     final nome = _nome.text.trim();
     final cidade = _cidade.text.trim();
 
-    if (chave.isEmpty || nome.isEmpty || cidade.isEmpty) {
+    if (_chave.text.trim().isEmpty || nome.isEmpty || cidade.isEmpty) {
       setState(() => _erro = 'Preencha a chave, o nome e a cidade.');
       return;
     }
 
+    final String chave;
+
     try {
+      chave = normalizarChavePix(_tipo, _chave.text);
       gerarPayloadPix(
         chave: chave,
         nome: nome,
@@ -88,7 +102,10 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
     try {
       await _repo.salvarPix(chave: chave, nome: nome, cidade: cidade);
       if (!mounted) return;
-      setState(() => _salvando = false);
+      setState(() {
+        _chave.text = chave;
+        _salvando = false;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Configuração do Pix salva!')),
       );
@@ -132,15 +149,36 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
                   style: TextStyle(color: Colors.white54, fontSize: 13),
                 ),
                 const SizedBox(height: 18),
+                DropdownButtonFormField<String>(
+                  value: _tipo,
+                  decoration: const InputDecoration(
+                    labelText: 'Tipo da chave',
+                    prefixIcon: Icon(Icons.vpn_key_outlined),
+                  ),
+                  items: [
+                    for (final t in tiposChavePix)
+                      DropdownMenuItem(value: t.chave, child: Text(t.rotulo)),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) {
+                      setState(() {
+                        _tipo = v;
+                        _erro = null;
+                      });
+                    }
+                  },
+                ),
+                const SizedBox(height: 16),
                 TextField(
                   controller: _chave,
                   autocorrect: false,
-                  decoration: const InputDecoration(
+                  keyboardType: _teclado,
+                  onChanged: (_) => setState(() => _erro = null),
+                  decoration: InputDecoration(
                     labelText: 'Chave Pix',
-                    helperText: 'CPF/CNPJ: só números. Telefone: +5511999999999. '
-                        'E-mail ou chave aleatória: como no banco.',
+                    helperText: _tipoAtual.dica,
                     helperMaxLines: 3,
-                    prefixIcon: Icon(Icons.key),
+                    prefixIcon: const Icon(Icons.key),
                   ),
                 ),
                 const SizedBox(height: 16),
