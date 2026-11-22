@@ -47,6 +47,8 @@ class FuncionarioRepository {
     required String senha,
     required String cargo,
     required int comissaoBp,
+    required int comissaoProdutosBp,
+    required Map<String, int> comissaoCategoriasBp,
     required Map<String, bool> permissoes,
   }) async {
     FirebaseApp? app;
@@ -89,6 +91,8 @@ class FuncionarioRepository {
         'ativo': true,
         'permissaoTotal': false,
         'comissaoBp': comissaoBp,
+        'comissaoProdutosBp': comissaoProdutosBp,
+        'comissaoCategoriasBp': comissaoCategoriasBp,
         'permissoes': permissoes,
         'criadoEm': FieldValue.serverTimestamp(),
         'atualizadoEm': FieldValue.serverTimestamp(),
@@ -105,12 +109,16 @@ class FuncionarioRepository {
     required String nome,
     required String cargo,
     required int comissaoBp,
+    required int comissaoProdutosBp,
+    required Map<String, int> comissaoCategoriasBp,
     required Map<String, bool> permissoes,
   }) async {
     await _col.doc(uid).update({
       'nome': nome,
       'cargo': cargo,
       'comissaoBp': comissaoBp,
+      'comissaoProdutosBp': comissaoProdutosBp,
+      'comissaoCategoriasBp': comissaoCategoriasBp,
       'permissoes': permissoes,
       'atualizadoEm': FieldValue.serverTimestamp(),
     });
