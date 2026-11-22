@@ -6,6 +6,8 @@ import '../widgets/aniversariantes_card.dart';
 import '../widgets/cards_painel.dart';
 import '../widgets/cartao_autorizacoes.dart';
 import '../widgets/indicador_comandas_abertas.dart';
+import '../widgets/indicador_entradas_dia.dart';
+import 'caixa/caixa_screen.dart';
 import 'catalogo/catalogo_screen.dart';
 import 'clientes/clientes_screen.dart';
 import 'comandas/comandas_screen.dart';
@@ -68,11 +70,7 @@ class PainelScreen extends StatelessWidget {
                 mainAxisSpacing: 12,
                 childAspectRatio: 1.45,
                 children: [
-                  const IndicadorCard(
-                    titulo: 'Entradas do dia',
-                    valor: '—',
-                    icone: Icons.attach_money,
-                  ),
+                  IndicadorEntradasDia(perfil: perfil),
                   IndicadorComandasAbertas(perfil: perfil),
                   const IndicadorCard(
                     titulo: 'Clientes atendidos',
@@ -109,7 +107,7 @@ class PainelScreen extends StatelessWidget {
                     onTap: () => iniciarNovaComanda(context, perfil),
                   ),
                   ModuloCard(
-                    titulo: 'Comandas abertas',
+                    titulo: 'Comandas',
                     icone: Icons.receipt_long,
                     onTap: () => Navigator.push(
                       context,
@@ -154,11 +152,17 @@ class PainelScreen extends StatelessWidget {
                       }
                     },
                   ),
-                  ModuloCard(
-                    titulo: 'Caixa',
-                    icone: Icons.point_of_sale,
-                    onTap: () => abrirModulo(context, 'Caixa'),
-                  ),
+                  if (perfil.pode('ver_caixa'))
+                    ModuloCard(
+                      titulo: 'Caixa',
+                      icone: Icons.point_of_sale,
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => CaixaScreen(perfil: perfil),
+                        ),
+                      ),
+                    ),
                   ModuloCard(
                     titulo: 'Relatórios',
                     icone: Icons.bar_chart,
