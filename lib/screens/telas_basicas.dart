@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../config/tema.dart';
+import 'configuracoes/configuracoes_screen.dart';
 
 class CarregandoScreen extends StatelessWidget {
   const CarregandoScreen({super.key});
@@ -57,7 +58,9 @@ void abrirModulo(BuildContext context, String titulo) {
   Navigator.push(
     context,
     MaterialPageRoute(
-      builder: (_) => ModuloEmConstrucaoScreen(titulo: titulo),
+      builder: (_) => titulo == 'Configurações'
+          ? const ConfiguracoesScreen()
+          : ModuloEmConstrucaoScreen(titulo: titulo),
     ),
   );
 }
