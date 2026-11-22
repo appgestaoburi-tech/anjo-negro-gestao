@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../config/formas_pagamento.dart';
 import '../../config/tema.dart';
 import '../../utils/dinheiro.dart';
+import 'dialogo_pix_qr.dart';
 
 class ResultadoPagamento {
   final String forma;
@@ -17,8 +18,13 @@ class ResultadoPagamento {
 
 class DialogPagamento extends StatefulWidget {
   final int saldoCentavos;
+  final int comandaNumero;
 
-  const DialogPagamento({super.key, required this.saldoCentavos});
+  const DialogPagamento({
+    super.key,
+    required this.saldoCentavos,
+    this.comandaNumero = 0,
+  });
 
   @override
   State<DialogPagamento> createState() => _DialogPagamentoState();
@@ -106,16 +112,26 @@ class _DialogPagamentoState extends State<DialogPagamento> {
     );
   }
 
+  void _mostrarQr(int valor) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => DialogPixQr(
+        valorCentavos: valor,
+        comandaNumero: widget.comandaNumero,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final dinheiro = _forma == 'dinheiro';
-    final valor =
-        dinheiro ? widget.saldoCentavos : (Dinheiro.paraCentavos(_valor.text) ?? 0);
+    final valor = dinheiro
+        ? widget.saldoCentavos
+        : (Dinheiro.paraCentavos(_valor.text) ?? 0);
     final restante = widget.saldoCentavos - valor;
     final recebido = Dinheiro.paraCentavos(_recebido.text) ?? 0;
-    final troco = (dinheiro && recebido > valor && valor > 0)
-        ? recebido - valor
-        : 0;
+    final troco =
+        (dinheiro && recebido > valor && valor > 0) ? recebido - valor : 0;
 
     String? dica;
     if (_forma == 'pix') {
@@ -183,6 +199,23 @@ class _DialogPagamentoState extends State<DialogPagamento> {
                 style: const TextStyle(
                   color: Colors.orangeAccent,
                   fontSize: 13,
+                ),
+              ),
+            ],
+            if (_forma == 'pix') ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: (valor > 0 && valor <= widget.saldoCentavos)
+                      ? () => _mostrarQr(valor)
+                      : null,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: dourado,
+                    side: const BorderSide(color: dourado),
+                  ),
+                  icon: const Icon(Icons.qr_code_2),
+                  label: const Text('MOSTRAR QR CODE PIX'),
                 ),
               ),
             ],
