@@ -1,10 +1,12 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../../config/catalogo_inicial.dart';
 import '../../config/permissoes.dart';
 import '../../config/tema.dart';
 import '../../models/funcionario.dart';
 import '../../models/perfil_usuario.dart';
 import '../../repositories/funcionario_repository.dart';
+import '../../utils/percentual.dart';
 
 class FuncionariosScreen extends StatefulWidget {
   final PerfilUsuario perfil;
@@ -141,6 +143,13 @@ class _FuncionariosScreenState extends State<FuncionariosScreen> {
   Widget _item(Funcionario f) {
     // O administrador principal não é editado por aqui, para evitar bloqueio.
     final protegido = f.permissaoTotal;
+    final semProdutos = !protegido && f.comissaoProdutosBp == null;
+
+    final linhaComissao = protegido
+        ? 'Sem comissão'
+        : 'Serviços ${f.comissaoTexto}'
+            '${f.comissaoCategoriasBp.isEmpty ? '' : ' (+${f.comissaoCategoriasBp.length} exceção)'}'
+            ' • Produtos ${f.comissaoProdutosTexto}';
 
     return Opacity(
       opacity: f.ativo ? 1 : 0.5,
@@ -149,7 +158,9 @@ class _FuncionariosScreenState extends State<FuncionariosScreen> {
         margin: const EdgeInsets.only(bottom: 11),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(13),
-          side: const BorderSide(color: bordaCartao),
+          side: BorderSide(
+            color: semProdutos ? Colors.orangeAccent : bordaCartao,
+          ),
         ),
         child: ListTile(
           contentPadding:
@@ -162,10 +173,26 @@ class _FuncionariosScreenState extends State<FuncionariosScreen> {
             f.nome.isEmpty ? '(sem nome)' : f.nome,
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
-          subtitle: Text(
-            '${f.rotuloCargo} • comissão ${f.comissaoTexto}'
-            '${f.ativo ? '' : ' • desativado'}',
-            style: const TextStyle(color: Colors.white54),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${f.rotuloCargo}${f.ativo ? '' : ' • desativado'}',
+                style: const TextStyle(color: Colors.white54),
+              ),
+              Text(
+                linhaComissao,
+                style: TextStyle(
+                  color: semProdutos ? Colors.orangeAccent : Colors.white54,
+                  fontSize: 12,
+                ),
+              ),
+              if (semProdutos)
+                const Text(
+                  'Defina a comissão de produtos (Editar).',
+                  style: TextStyle(color: Colors.orangeAccent, fontSize: 12),
+                ),
+            ],
           ),
           trailing: protegido
               ? null
@@ -195,11 +222,9 @@ class _FuncionariosScreenState extends State<FuncionariosScreen> {
   }
 }
 
-int? _percentualParaBp(String texto) {
-  final t = texto.trim().replaceAll('%', '').replaceAll(',', '.');
-  final v = double.tryParse(t);
-  if (v == null || v < 0 || v > 100) return null;
-  return (v * 100).round();
+String _bpParaCampo(int bp) {
+  if (bp % 100 == 0) return '${bp ~/ 100}';
+  return (bp / 100).toStringAsFixed(2).replaceAll('.', ',');
 }
 
 class _FormularioFuncionario extends StatefulWidget {
@@ -217,6 +242,10 @@ class _FormularioFuncionarioState extends State<_FormularioFuncionario> {
   final _nome = TextEditingController();
   final _senha = TextEditingController();
   final _comissao = TextEditingController();
+  final _produtos = TextEditingController();
+  final Map<String, TextEditingController> _cats = {
+    for (final c in categoriasServicos) c: TextEditingController(),
+  };
 
   String _cargo = 'colaborador';
   final Map<String, bool> _perms = {};
@@ -231,9 +260,13 @@ class _FormularioFuncionarioState extends State<_FormularioFuncionario> {
     final f = widget.funcionario;
     if (f != null) {
       _nome.text = f.nome;
-      _comissao.text = f.comissaoBp % 100 == 0
-          ? '${f.comissaoBp ~/ 100}'
-          : (f.comissaoBp / 100).toStringAsFixed(2).replaceAll('.', ',');
+      _comissao.text = _bpParaCampo(f.comissaoBp);
+      if (f.comissaoProdutosBp != null) {
+        _produtos.text = _bpParaCampo(f.comissaoProdutosBp!);
+      }
+      f.comissaoCategoriasBp.forEach((cat, bp) {
+        _cats[cat]?.text = _bpParaCampo(bp);
+      });
       _cargo = f.cargo == 'admin_equipe' ? 'admin_equipe' : 'colaborador';
       _perms.addAll(f.permissoes);
     }
@@ -244,24 +277,46 @@ class _FormularioFuncionarioState extends State<_FormularioFuncionario> {
     _nome.dispose();
     _senha.dispose();
     _comissao.dispose();
+    _produtos.dispose();
+    for (final c in _cats.values) {
+      c.dispose();
+    }
     super.dispose();
   }
 
   Future<void> _salvar() async {
     final nome = _nome.text.trim();
-    final bp = _percentualParaBp(_comissao.text);
+    final padraoBp = percentualParaBp(_comissao.text);
+    final produtosBp = percentualParaBp(_produtos.text);
 
     if (nome.isEmpty) {
       setState(() => _erro = 'Informe o nome do funcionário.');
       return;
     }
-    if (bp == null) {
-      setState(() => _erro = 'Confirme a comissão (de 0 a 100).');
-      return;
-    }
     if (_novo && _senha.text.length < 6) {
       setState(() => _erro = 'A senha precisa ter pelo menos 6 caracteres.');
       return;
+    }
+    if (padraoBp == null) {
+      setState(() => _erro = 'Confirme a comissão padrão de serviços (0 a 100).');
+      return;
+    }
+    if (produtosBp == null) {
+      setState(() => _erro = 'Confirme a comissão de produtos (0 a 100).');
+      return;
+    }
+
+    final categorias = <String, int>{};
+    for (final e in _cats.entries) {
+      final texto = e.value.text.trim();
+      if (texto.isEmpty) continue;
+
+      final bp = percentualParaBp(texto);
+      if (bp == null) {
+        setState(() => _erro = 'Percentual inválido em ${e.key} (0 a 100).');
+        return;
+      }
+      categorias[e.key] = bp;
     }
 
     setState(() {
@@ -280,7 +335,9 @@ class _FormularioFuncionarioState extends State<_FormularioFuncionario> {
           nome: nome,
           senha: _senha.text,
           cargo: _cargo,
-          comissaoBp: bp,
+          comissaoBp: padraoBp,
+          comissaoProdutosBp: produtosBp,
+          comissaoCategoriasBp: categorias,
           permissoes: permissoes,
         );
         if (mounted) Navigator.pop(context, email);
@@ -289,7 +346,9 @@ class _FormularioFuncionarioState extends State<_FormularioFuncionario> {
           widget.funcionario!.uid,
           nome: nome,
           cargo: _cargo,
-          comissaoBp: bp,
+          comissaoBp: padraoBp,
+          comissaoProdutosBp: produtosBp,
+          comissaoCategoriasBp: categorias,
           permissoes: permissoes,
         );
         if (mounted) Navigator.pop(context, '');
@@ -309,6 +368,21 @@ class _FormularioFuncionarioState extends State<_FormularioFuncionario> {
         _erro = 'Não foi possível salvar. Confira as permissões do Firebase.';
       });
     }
+  }
+
+  Widget _secao(String texto) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 18, bottom: 6),
+      child: Text(
+        texto,
+        style: const TextStyle(
+          color: dourado,
+          fontWeight: FontWeight.bold,
+          fontSize: 12,
+          letterSpacing: 1.5,
+        ),
+      ),
+    );
   }
 
   @override
@@ -361,27 +435,48 @@ class _FormularioFuncionarioState extends State<_FormularioFuncionario> {
                 if (v != null) setState(() => _cargo = v);
               },
             ),
-            const SizedBox(height: 13),
+            _secao('COMISSÃO DE SERVIÇOS'),
             TextField(
               controller: _comissao,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
               decoration: const InputDecoration(
-                labelText: 'Comissão (%)',
-                helperText: 'Digite o percentual combinado com este funcionário',
+                labelText: 'Padrão para serviços (%)',
+                helperText: 'Vale para toda categoria deixada em branco abaixo',
+                helperMaxLines: 2,
                 prefixIcon: Icon(Icons.percent),
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             const Text(
-              'PERMISSÕES EXTRAS',
-              style: TextStyle(
-                color: dourado,
-                fontWeight: FontWeight.bold,
-                fontSize: 12,
-                letterSpacing: 1.5,
+              'Percentual diferente por categoria (opcional):',
+              style: TextStyle(color: Colors.white54, fontSize: 12),
+            ),
+            for (final c in categoriasServicos) ...[
+              const SizedBox(height: 10),
+              TextField(
+                controller: _cats[c],
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  labelText: '$c (%)',
+                  hintText: 'igual ao padrão',
+                ),
+              ),
+            ],
+            _secao('COMISSÃO DE PRODUTOS'),
+            TextField(
+              controller: _produtos,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Produtos vendidos (%)',
+                helperText: 'Obrigatório. Use 0 se não houver comissão.',
+                helperMaxLines: 2,
+                prefixIcon: Icon(Icons.inventory_2_outlined),
               ),
             ),
+            _secao('PERMISSÕES EXTRAS'),
             for (final p in permissoesDisponiveis)
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
