@@ -4,6 +4,7 @@ import '../models/comanda.dart';
 import '../models/pagamento.dart';
 import '../models/perfil_usuario.dart';
 import '../models/produto.dart';
+import '../utils/comissao_calculo.dart';
 import '../utils/datas.dart';
 import '../utils/dinheiro.dart';
 
@@ -29,6 +30,10 @@ class PagamentoRepository {
       _firestore.collection('produtos');
   CollectionReference<Map<String, dynamic>> get _movimentos =>
       _firestore.collection('movimentosEstoque');
+  CollectionReference<Map<String, dynamic>> get _usuarios =>
+      _firestore.collection('usuarios');
+  CollectionReference<Map<String, dynamic>> get _comissoes =>
+      _firestore.collection('comissoes');
 
   Stream<List<Pagamento>> observarDaComanda(
     String comandaId,
@@ -52,8 +57,45 @@ class PagamentoRepository {
     });
   }
 
-  /// Registra o pagamento. Se ele quitar a comanda, finaliza e dá baixa
-  /// no estoque na MESMA operação (tudo ou nada).
+  /// Calcula a comissão com os percentuais do barbeiro neste momento.
+  /// O administrador principal não gera comissão (retorna nulo).
+  ResultadoComissao? _comissaoDaComanda(
+    Comanda c,
+    DocumentSnapshot<Map<String, dynamic>> barbeiro,
+  ) {
+    if (!barbeiro.exists) {
+      throw Exception('Cadastro do barbeiro não encontrado.');
+    }
+
+    final b = barbeiro.data() ?? <String, dynamic>{};
+    if (b['permissaoTotal'] == true) return null;
+
+    final padrao = (b['comissaoBp'] as num?)?.toInt();
+    if (padrao == null) {
+      throw Exception(
+        'Defina a comissão de ${c.barbeiroNome} em Funcionários '
+        'antes de receber.',
+      );
+    }
+
+    final categorias = <String, int>{};
+    final brutas = b['comissaoCategoriasBp'];
+    if (brutas is Map) {
+      brutas.forEach((k, v) {
+        if (v is num) categorias[k.toString()] = v.toInt();
+      });
+    }
+
+    return calcularComissao(
+      comanda: c,
+      servicoPadraoBp: padrao,
+      categoriasBp: categorias,
+      produtosBp: (b['comissaoProdutosBp'] as num?)?.toInt(),
+    );
+  }
+
+  /// Registra o pagamento. Se ele quitar a comanda, finaliza, dá baixa
+  /// no estoque e grava a comissão na MESMA operação (tudo ou nada).
   Future<void> registrar({
     required String comandaId,
     required String forma,
@@ -68,6 +110,8 @@ class PagamentoRepository {
       if (!comandaSnap.exists) throw Exception('Comanda não encontrada.');
 
       final c = Comanda.doDocumento(comandaSnap);
+      final bruto = comandaSnap.data() ?? <String, dynamic>{};
+      final finalizacoes = (bruto['finalizacoes'] as num?)?.toInt() ?? 0;
 
       if (!c.aberta) throw Exception('Esta comanda não está mais aberta.');
       if (!perfil.permissaoTotal && c.barbeiroUid != perfil.uid) {
@@ -96,19 +140,21 @@ class PagamentoRepository {
           '(${Dinheiro.formatar(c.saldoCentavos)}).',
         );
       }
-
-            if (forma == 'dinheiro' && valorCentavos != c.saldoCentavos) {
+      if (forma == 'dinheiro' && valorCentavos != c.saldoCentavos) {
         throw Exception(
           'O pagamento em dinheiro deve quitar todo o saldo '
           '(${Dinheiro.formatar(c.saldoCentavos)}). '
           'Para pagar parcialmente, use Pix ou cartão.',
         );
-            }
+      }
+
       final novoPago = c.pagoCentavos + valorCentavos;
       final quita = novoPago == c.totalCentavos;
 
       // Todas as leituras antes de qualquer escrita.
       final baixas = <_Movimento>[];
+      ResultadoComissao? comissao;
+
       if (quita) {
         for (final item in c.produtos) {
           final ref = _produtos.doc(item.produtoId);
@@ -129,6 +175,9 @@ class PagamentoRepository {
           }
           baixas.add(_Movimento(ref, p, item));
         }
+
+        final barbeiro = await tx.get(_usuarios.doc(c.barbeiroUid));
+        comissao = _comissaoDaComanda(c, barbeiro);
       }
 
       final agora = DateTime.now();
@@ -163,9 +212,34 @@ class PagamentoRepository {
         campos['finalizadaEm'] = FieldValue.serverTimestamp();
         campos['finalizadaPorUid'] = perfil.uid;
         campos['finalizadaDia'] = diaIso(agora);
+        campos['finalizacoes'] = finalizacoes + 1;
+      }
+
+      String? comissaoId;
+      if (comissao != null) {
+        comissaoId = '${c.id}_${finalizacoes + 1}';
+        campos['comissaoAtualId'] = comissaoId;
       }
 
       tx.update(comandaRef, campos);
+
+      if (comissao != null && comissaoId != null) {
+        tx.set(_comissoes.doc(comissaoId), {
+          'comandaId': c.id,
+          'comandaNumero': c.numero,
+          'barbeiroUid': c.barbeiroUid,
+          'barbeiroNome': c.barbeiroNome,
+          'clienteNome': c.clienteNome,
+          'dia': diaIso(agora),
+          'status': 'ativa',
+          'totalComissaoCentavos': comissao.totalCentavos,
+          'baseServicosCentavos': comissao.baseServicosCentavos,
+          'baseProdutosCentavos': comissao.baseProdutosCentavos,
+          'descontoCentavos': c.descontoCentavos,
+          'linhas': comissao.linhas.map((l) => l.paraMapa()).toList(),
+          'criadoEm': FieldValue.serverTimestamp(),
+        });
+      }
 
       for (final b in baixas) {
         tx.update(b.ref, {
@@ -187,7 +261,8 @@ class PagamentoRepository {
   }
 
   /// Só o administrador. O pagamento continua no histórico, marcado como
-  /// estornado. Se a comanda estava paga, ela reabre e o estoque volta.
+  /// estornado. Se a comanda estava paga, ela reabre, o estoque volta e a
+  /// comissão dela é estornada.
   Future<void> estornar(
     String pagamentoId,
     PerfilUsuario perfil, {
@@ -212,6 +287,8 @@ class PagamentoRepository {
       if (!comandaSnap.exists) throw Exception('Comanda não encontrada.');
 
       final c = Comanda.doDocumento(comandaSnap);
+      final bruto = comandaSnap.data() ?? <String, dynamic>{};
+
       if (c.status == 'cancelada') {
         throw Exception('A comanda está cancelada.');
       }
@@ -219,6 +296,9 @@ class PagamentoRepository {
       final reabre = c.status == 'paga';
 
       final devolucoes = <_Movimento>[];
+      DocumentReference<Map<String, dynamic>>? comissaoRef;
+      DocumentSnapshot<Map<String, dynamic>>? comissaoSnap;
+
       if (reabre) {
         for (final item in c.produtos) {
           final ref = _produtos.doc(item.produtoId);
@@ -226,6 +306,12 @@ class PagamentoRepository {
           if (snap.exists) {
             devolucoes.add(_Movimento(ref, Produto.doDocumento(snap), item));
           }
+        }
+
+        final comissaoId = (bruto['comissaoAtualId'] ?? '').toString();
+        if (comissaoId.isNotEmpty) {
+          comissaoRef = _comissoes.doc(comissaoId);
+          comissaoSnap = await tx.get(comissaoRef);
         }
       }
 
@@ -250,9 +336,21 @@ class PagamentoRepository {
         campos['reabertaPorUid'] = perfil.uid;
         campos['finalizadaEm'] = FieldValue.delete();
         campos['finalizadaDia'] = FieldValue.delete();
+        campos['comissaoAtualId'] = FieldValue.delete();
       }
 
       tx.update(comandaRef, campos);
+
+      if (comissaoRef != null &&
+          comissaoSnap != null &&
+          comissaoSnap.exists &&
+          comissaoSnap.data()?['status'] == 'ativa') {
+        tx.update(comissaoRef, {
+          'status': 'estornada',
+          'estornadaEm': FieldValue.serverTimestamp(),
+          'estornadaPorUid': perfil.uid,
+        });
+      }
 
       for (final d in devolucoes) {
         tx.update(d.ref, {
