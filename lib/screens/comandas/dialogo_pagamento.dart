@@ -32,11 +32,15 @@ class _DialogPagamentoState extends State<DialogPagamento> {
   bool _confirmou = false;
   String? _erro;
 
+  String get _saldoTexto {
+    final s = widget.saldoCentavos;
+    return '${s ~/ 100},${(s % 100).toString().padLeft(2, '0')}';
+  }
+
   @override
   void initState() {
     super.initState();
-    final s = widget.saldoCentavos;
-    _valor.text = '${s ~/ 100},${(s % 100).toString().padLeft(2, '0')}';
+    _valor.text = _saldoTexto;
   }
 
   @override
@@ -46,8 +50,21 @@ class _DialogPagamentoState extends State<DialogPagamento> {
     super.dispose();
   }
 
+  void _escolherForma(String chave) {
+    setState(() {
+      _forma = chave;
+      _erro = null;
+      // Dinheiro sempre quita todo o saldo.
+      if (chave == 'dinheiro') {
+        _valor.text = _saldoTexto;
+      }
+    });
+  }
+
   void _confirmar() {
-    final valor = Dinheiro.paraCentavos(_valor.text);
+    final dinheiro = _forma == 'dinheiro';
+    final valor =
+        dinheiro ? widget.saldoCentavos : Dinheiro.paraCentavos(_valor.text);
 
     if (valor == null || valor <= 0) {
       setState(() => _erro = 'Informe um valor válido.');
@@ -62,11 +79,12 @@ class _DialogPagamentoState extends State<DialogPagamento> {
     }
 
     var recebido = 0;
-    if (_forma == 'dinheiro' && _recebido.text.trim().isNotEmpty) {
+    if (dinheiro && _recebido.text.trim().isNotEmpty) {
       final r = Dinheiro.paraCentavos(_recebido.text);
       if (r == null || r < valor) {
         setState(() {
-          _erro = 'O valor recebido não pode ser menor que o pagamento.';
+          _erro = 'O valor recebido não pode ser menor que '
+              '${Dinheiro.formatar(valor)}.';
         });
         return;
       }
@@ -90,10 +108,12 @@ class _DialogPagamentoState extends State<DialogPagamento> {
 
   @override
   Widget build(BuildContext context) {
-    final valor = Dinheiro.paraCentavos(_valor.text) ?? 0;
+    final dinheiro = _forma == 'dinheiro';
+    final valor =
+        dinheiro ? widget.saldoCentavos : (Dinheiro.paraCentavos(_valor.text) ?? 0);
     final restante = widget.saldoCentavos - valor;
     final recebido = Dinheiro.paraCentavos(_recebido.text) ?? 0;
-    final troco = (_forma == 'dinheiro' && recebido > valor && valor > 0)
+    final troco = (dinheiro && recebido > valor && valor > 0)
         ? recebido - valor
         : 0;
 
@@ -137,25 +157,26 @@ class _DialogPagamentoState extends State<DialogPagamento> {
                     labelStyle: TextStyle(
                       color: _forma == f.chave ? Colors.black : Colors.white,
                     ),
-                    onSelected: (_) => setState(() {
-                      _forma = f.chave;
-                      _erro = null;
-                    }),
+                    onSelected: (_) => _escolherForma(f.chave),
                   ),
               ],
             ),
             const SizedBox(height: 14),
             TextField(
               controller: _valor,
+              readOnly: dinheiro,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
               onChanged: (_) => setState(() => _erro = null),
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Valor deste pagamento (R\$)',
-                prefixIcon: Icon(Icons.attach_money),
+                helperText: dinheiro
+                    ? 'Dinheiro quita todo o saldo (não aceita parcial)'
+                    : null,
+                prefixIcon: const Icon(Icons.attach_money),
               ),
             ),
-            if (valor > 0 && restante > 0) ...[
+            if (!dinheiro && valor > 0 && restante > 0) ...[
               const SizedBox(height: 6),
               Text(
                 'Pagamento parcial: restará ${Dinheiro.formatar(restante)}.',
@@ -165,7 +186,7 @@ class _DialogPagamentoState extends State<DialogPagamento> {
                 ),
               ),
             ],
-            if (_forma == 'dinheiro') ...[
+            if (dinheiro) ...[
               const SizedBox(height: 12),
               TextField(
                 controller: _recebido,
@@ -174,6 +195,7 @@ class _DialogPagamentoState extends State<DialogPagamento> {
                 onChanged: (_) => setState(() => _erro = null),
                 decoration: const InputDecoration(
                   labelText: 'Valor recebido do cliente (opcional)',
+                  helperText: 'Serve para calcular o troco',
                   prefixIcon: Icon(Icons.payments_outlined),
                 ),
               ),
