@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/percentual.dart';
 
 class Funcionario {
   final String uid;
@@ -7,7 +8,9 @@ class Funcionario {
   final String cargo;
   final bool ativo;
   final bool permissaoTotal;
-  final int comissaoBp; // 5000 = 50,00%
+  final int comissaoBp; // padrão de serviços: 5000 = 50,00%
+  final int? comissaoProdutosBp; // nulo = ainda não definido
+  final Map<String, int> comissaoCategoriasBp; // exceções por categoria
   final Map<String, bool> permissoes;
 
   const Funcionario({
@@ -18,11 +21,14 @@ class Funcionario {
     required this.ativo,
     required this.permissaoTotal,
     required this.comissaoBp,
+    required this.comissaoProdutosBp,
+    required this.comissaoCategoriasBp,
     required this.permissoes,
   });
 
   factory Funcionario.doDocumento(DocumentSnapshot<Map<String, dynamic>> doc) {
     final d = doc.data() ?? <String, dynamic>{};
+
     final perms = <String, bool>{};
     final brutas = d['permissoes'];
     if (brutas is Map) {
@@ -30,6 +36,15 @@ class Funcionario {
         if (v == true) perms[k.toString()] = true;
       });
     }
+
+    final cats = <String, int>{};
+    final brutasCats = d['comissaoCategoriasBp'];
+    if (brutasCats is Map) {
+      brutasCats.forEach((k, v) {
+        if (v is num) cats[k.toString()] = v.toInt();
+      });
+    }
+
     return Funcionario(
       uid: doc.id,
       nome: (d['nome'] ?? '').toString(),
@@ -38,6 +53,8 @@ class Funcionario {
       ativo: d['ativo'] == true,
       permissaoTotal: d['permissaoTotal'] == true,
       comissaoBp: (d['comissaoBp'] as num?)?.toInt() ?? 0,
+      comissaoProdutosBp: (d['comissaoProdutosBp'] as num?)?.toInt(),
+      comissaoCategoriasBp: cats,
       permissoes: perms,
     );
   }
@@ -48,8 +65,8 @@ class Funcionario {
     return 'Colaborador';
   }
 
-  String get comissaoTexto {
-    if (comissaoBp % 100 == 0) return '${comissaoBp ~/ 100}%';
-    return '${(comissaoBp / 100).toStringAsFixed(2).replaceAll('.', ',')}%';
-  }
+  String get comissaoTexto => bpParaTexto(comissaoBp);
+
+  String get comissaoProdutosTexto =>
+      comissaoProdutosBp == null ? 'não definida' : bpParaTexto(comissaoProdutosBp!);
 }
