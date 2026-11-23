@@ -16,43 +16,58 @@ bool _mesmoTs(Timestamp? a, Timestamp? b) {
   return a.compareTo(b) == 0;
 }
 
-/// Tudo de um barbeiro: o que ainda está a receber (desde o último
-/// pagamento válido) e o histórico.
+/// Dados lidos do Firestore, antes de aplicar a regra de período.
+class BrutoComissao {
+  final List<Comissao> comissoes;
+  final List<PagamentoComissao> pagamentos;
+
+  const BrutoComissao(this.comissoes, this.pagamentos);
+}
+
+/// O que está a receber (desde o último pagamento válido, até o corte).
+/// No modo semanal, o que veio depois do corte fica em "andamento".
 class DadosComissaoBarbeiro {
   final List<PagamentoComissao> pagamentos; // mais recente primeiro
   final PagamentoComissao? ultimoValido;
   final Timestamp? de;
   final Timestamp? ate;
+  final Timestamp? corte;
   final List<Comissao> creditos;
   final List<Comissao> estornos;
   final int creditosCentavos;
   final int estornosCentavos;
+  final int andamentoCentavos; // comissões após o corte, líquidas
+  final int andamentoQtd;
 
   const DadosComissaoBarbeiro({
     required this.pagamentos,
     required this.ultimoValido,
     required this.de,
     required this.ate,
+    required this.corte,
     required this.creditos,
     required this.estornos,
     required this.creditosCentavos,
     required this.estornosCentavos,
+    required this.andamentoCentavos,
+    required this.andamentoQtd,
   });
 
   int get totalCentavos => creditosCentavos - estornosCentavos;
 
   static DadosComissaoBarbeiro calcular(
-    List<Comissao> comissoes,
-    List<PagamentoComissao> pagamentos,
-  ) {
-    final ordenados = [...pagamentos];
+    BrutoComissao bruto, {
+    Timestamp? corte,
+  }) {
+    final ordenados = [...bruto.pagamentos];
     ordenados.sort((a, b) {
       final x = a.criadoEm ?? Timestamp.now();
       final y = b.criadoEm ?? Timestamp.now();
       return y.compareTo(x);
     });
 
-    final validos = ordenados.where((p) => !p.estornado && p.ate != null).toList();
+    final validos =
+        ordenados.where((p) => !p.estornado && p.ate != null).toList();
     validos.sort((a, b) => b.ate!.compareTo(a.ate!));
 
     final ultimo = validos.isEmpty ? null : validos.first;
@@ -60,10 +75,15 @@ class DadosComissaoBarbeiro {
 
     bool depois(Timestamp? t) =>
         t != null && (de == null || t.compareTo(de) > 0);
+    bool noCorte(Timestamp? t) =>
+        corte == null || (t != null && t.compareTo(corte) <= 0);
 
-    final creditos = comissoes.where((c) => depois(c.criadoEm)).toList();
-    final estornos =
-        comissoes.where((c) => c.estornada && depois(c.estornadaEm)).toList();
+    final creditos = bruto.comissoes
+        .where((c) => depois(c.criadoEm) && noCorte(c.criadoEm))
+        .toList();
+    final estornos = bruto.comissoes
+        .where((c) => c.estornada && depois(c.estornadaEm) && noCorte(c.estornadaEm))
+        .toList();
 
     creditos.sort((a, b) {
       final x = a.criadoEm ?? Timestamp.now();
@@ -71,12 +91,33 @@ class DadosComissaoBarbeiro {
       return y.compareTo(x);
     });
 
-    var ate = de;
-    for (final c in creditos) {
-      ate = _maior(ate, c.criadoEm);
+    // O que veio depois do corte (só existe no modo semanal).
+    var andamento = 0;
+    var andamentoQtd = 0;
+    if (corte != null) {
+      for (final c in bruto.comissoes) {
+        if (depois(c.criadoEm) && !noCorte(c.criadoEm)) {
+          andamento += c.totalCentavos;
+          andamentoQtd++;
+        }
+        if (c.estornada && depois(c.estornadaEm) && !noCorte(c.estornadaEm)) {
+          andamento -= c.totalCentavos;
+        }
+      }
     }
-    for (final c in estornos) {
-      ate = _maior(ate, c.estornadaEm);
+
+    Timestamp? ate;
+    if (creditos.isNotEmpty || estornos.isNotEmpty) {
+      if (corte != null) {
+        ate = corte;
+      } else {
+        for (final c in creditos) {
+          ate = _maior(ate, c.criadoEm);
+        }
+        for (final c in estornos) {
+          ate = _maior(ate, c.estornadaEm);
+        }
+      }
     }
 
     return DadosComissaoBarbeiro(
@@ -84,10 +125,13 @@ class DadosComissaoBarbeiro {
       ultimoValido: ultimo,
       de: de,
       ate: ate,
+      corte: corte,
       creditos: creditos,
       estornos: estornos,
       creditosCentavos: creditos.fold<int>(0, (s, c) => s + c.totalCentavos),
       estornosCentavos: estornos.fold<int>(0, (s, c) => s + c.totalCentavos),
+      andamentoCentavos: andamento,
+      andamentoQtd: andamentoQtd,
     );
   }
 }
@@ -107,8 +151,8 @@ class ComissaoRepository {
   CollectionReference<Map<String, dynamic>> get _despesas =>
       _firestore.collection('despesas');
 
-  Stream<DadosComissaoBarbeiro> observarBarbeiro(String barbeiroUid) {
-    late final StreamController<DadosComissaoBarbeiro> controller;
+  Stream<BrutoComissao> observarBarbeiro(String barbeiroUid) {
+    late final StreamController<BrutoComissao> controller;
     final inscricoes = <StreamSubscription<dynamic>>[];
 
     List<Comissao>? comissoes;
@@ -116,12 +160,10 @@ class ComissaoRepository {
 
     void emitir() {
       if (comissoes == null || pagamentos == null) return;
-      controller.add(
-        DadosComissaoBarbeiro.calcular(comissoes!, pagamentos!),
-      );
+      controller.add(BrutoComissao(comissoes!, pagamentos!));
     }
 
-    controller = StreamController<DadosComissaoBarbeiro>(
+    controller = StreamController<BrutoComissao>(
       onListen: () {
         inscricoes.add(
           _comissoes
@@ -153,14 +195,15 @@ class ComissaoRepository {
     return controller.stream;
   }
 
-  /// Paga tudo o que está a receber. O pagamento entra no caixa como
-  /// despesa (categoria Comissões). O documento de controle garante que
-  /// duas pessoas não paguem a mesma janela duas vezes.
+  /// Paga tudo o que está a receber até o corte. O pagamento entra no
+  /// caixa como despesa (categoria Comissões). O documento de controle
+  /// garante que duas pessoas não paguem a mesma janela duas vezes.
   Future<void> pagar({
     required PerfilUsuario perfil,
     required String barbeiroUid,
     required String barbeiroNome,
     required DadosComissaoBarbeiro dados,
+    required String modo,
     required String forma,
     required String observacoes,
   }) async {
@@ -200,6 +243,7 @@ class ComissaoRepository {
         'estornosCentavos': dados.estornosCentavos,
         'qtdCreditos': dados.creditos.length,
         'qtdEstornos': dados.estornos.length,
+        'modo': modo,
         'de': dados.de,
         'ate': dados.ate,
         'forma': forma,
