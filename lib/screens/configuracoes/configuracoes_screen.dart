@@ -3,6 +3,7 @@ import '../../config/tema.dart';
 import '../../repositories/configuracao_repository.dart';
 import '../../utils/chave_pix.dart';
 import '../../utils/erros.dart';
+import '../../utils/periodo_comissao.dart';
 import '../../utils/pix_payload.dart';
 import '../comandas/dialogo_pix_qr.dart';
 
@@ -21,9 +22,14 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
   final _cidade = TextEditingController();
 
   String _tipo = 'telefone';
+  String _modo = 'semanal';
+  int _diaInicio = 6;
+
   bool _carregando = true;
   bool _salvando = false;
+  bool _salvandoRegra = false;
   String? _erro;
+  String? _erroRegra;
 
   @override
   void initState() {
@@ -42,6 +48,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
   Future<void> _carregar() async {
     try {
       final cfg = await _repo.lerPix();
+      final regra = await _repo.lerComissoes();
       if (!mounted) return;
       setState(() {
         if (cfg != null) {
@@ -50,6 +57,8 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
           _cidade.text = cfg.cidade;
           _tipo = tipoDaChave(cfg.chave);
         }
+        _modo = regra.modo;
+        _diaInicio = regra.diaInicio;
         _carregando = false;
       });
     } catch (e) {
@@ -118,10 +127,164 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
     }
   }
 
+  Future<void> _salvarRegra() async {
+    setState(() {
+      _salvandoRegra = true;
+      _erroRegra = null;
+    });
+
+    try {
+      await _repo.salvarComissoes(modo: _modo, diaInicio: _diaInicio);
+      if (!mounted) return;
+      setState(() => _salvandoRegra = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Regra de comissões salva!')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _salvandoRegra = false;
+        _erroRegra = mensagemDeErro(e);
+      });
+    }
+  }
+
   void _testar() {
     showDialog<void>(
       context: context,
       builder: (_) => const DialogPixQr(valorCentavos: 100),
+    );
+  }
+
+  Widget _titulo(String texto) {
+    return Text(
+      texto,
+      style: const TextStyle(
+        color: dourado,
+        fontWeight: FontWeight.bold,
+        letterSpacing: 2,
+      ),
+    );
+  }
+
+  Widget _botaoSalvar(String texto, bool ocupado, VoidCallback aoTocar) {
+    return SizedBox(
+      height: 52,
+      child: ElevatedButton(
+        onPressed: ocupado ? null : aoTocar,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: dourado,
+          foregroundColor: Colors.black,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        child: ocupado
+            ? const SizedBox(
+                height: 20,
+                width: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.black,
+                ),
+              )
+            : Text(
+                texto,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+      ),
+    );
+  }
+
+  Widget _secaoComissoes() {
+    final fim = _diaInicio == 1 ? 7 : _diaInicio - 1;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _titulo('PAGAMENTO DE COMISSÕES'),
+        const SizedBox(height: 8),
+        const Text(
+          'Define como o administrador paga as comissões dos barbeiros.',
+          style: TextStyle(color: Colors.white54, fontSize: 13),
+        ),
+        const SizedBox(height: 18),
+        DropdownButtonFormField<String>(
+          value: _modo,
+          decoration: const InputDecoration(
+            labelText: 'Modo de pagamento',
+            prefixIcon: Icon(Icons.calendar_month_outlined),
+          ),
+          items: const [
+            DropdownMenuItem(
+              value: 'semanal',
+              child: Text('Semanal (por semana fechada)'),
+            ),
+            DropdownMenuItem(
+              value: 'livre',
+              child: Text('Livre (tudo que estiver pendente)'),
+            ),
+          ],
+          onChanged: (v) {
+            if (v != null) {
+              setState(() {
+                _modo = v;
+                _erroRegra = null;
+              });
+            }
+          },
+        ),
+        if (_modo == 'semanal') ...[
+          const SizedBox(height: 16),
+          DropdownButtonFormField<int>(
+            value: _diaInicio,
+            decoration: const InputDecoration(
+              labelText: 'A semana de trabalho começa em',
+              prefixIcon: Icon(Icons.today_outlined),
+            ),
+            items: [
+              for (var d = 1; d <= 7; d++)
+                DropdownMenuItem(value: d, child: Text(nomesDiasSemana[d])),
+            ],
+            onChanged: (v) {
+              if (v != null) {
+                setState(() {
+                  _diaInicio = v;
+                  _erroRegra = null;
+                });
+              }
+            },
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Cada pagamento cobre de ${nomesDiasSemana[_diaInicio].toLowerCase()} '
+            'a ${nomesDiasSemana[fim].toLowerCase()} e pode ser feito a partir '
+            'de ${nomesDiasSemana[_diaInicio].toLowerCase()}. O trabalho do '
+            'próprio dia ${nomesDiasSemana[_diaInicio].toLowerCase()} entra no '
+            'pagamento da semana seguinte.',
+            style: const TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+        ] else ...[
+          const SizedBox(height: 10),
+          const Text(
+            'No modo livre, o administrador paga tudo o que estiver '
+            'pendente quando quiser.',
+            style: TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+        ],
+        if (_erroRegra != null) ...[
+          const SizedBox(height: 12),
+          Text(_erroRegra!, style: const TextStyle(color: Colors.redAccent)),
+        ],
+        const SizedBox(height: 16),
+        _botaoSalvar('SALVAR REGRA DE COMISSÕES', _salvandoRegra, _salvarRegra),
+        const SizedBox(height: 10),
+        const Text(
+          'Mudar a regra não altera comissões já calculadas nem '
+          'pagamentos já feitos.',
+          style: TextStyle(color: Colors.white38, fontSize: 12),
+        ),
+      ],
     );
   }
 
@@ -134,14 +297,11 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
           : ListView(
               padding: const EdgeInsets.all(18),
               children: [
-                const Text(
-                  'RECEBIMENTO POR PIX',
-                  style: TextStyle(
-                    color: dourado,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 2,
-                  ),
-                ),
+                _secaoComissoes(),
+                const SizedBox(height: 30),
+                const Divider(color: bordaCartao),
+                const SizedBox(height: 22),
+                _titulo('RECEBIMENTO POR PIX'),
                 const SizedBox(height: 8),
                 const Text(
                   'Esses dados geram o QR code Pix mostrado no pagamento. '
@@ -209,32 +369,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
                   ),
                 ],
                 const SizedBox(height: 22),
-                SizedBox(
-                  height: 52,
-                  child: ElevatedButton(
-                    onPressed: _salvando ? null : _salvar,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: dourado,
-                      foregroundColor: Colors.black,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: _salvando
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.black,
-                            ),
-                          )
-                        : const Text(
-                            'SALVAR',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                  ),
-                ),
+                _botaoSalvar('SALVAR PIX', _salvando, _salvar),
                 const SizedBox(height: 12),
                 SizedBox(
                   height: 50,
@@ -258,6 +393,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
                   'valor na tela de confirmação.',
                   style: TextStyle(color: Colors.white38, fontSize: 12),
                 ),
+                const SizedBox(height: 20),
               ],
             ),
     );
