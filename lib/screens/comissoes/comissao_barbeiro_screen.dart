@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../config/formas_pagamento.dart';
 import '../../config/tema.dart';
 import '../../models/comissao.dart';
 import '../../models/perfil_usuario.dart';
@@ -8,8 +7,9 @@ import '../../repositories/configuracao_repository.dart';
 import '../../utils/datas.dart';
 import '../../utils/dinheiro.dart';
 import '../../utils/erros.dart';
-import '../../utils/percentual.dart';
 import '../../utils/periodo_comissao.dart';
+import 'dialogo_pagar_comissao.dart';
+import 'itens_comissao.dart';
 
 class ComissaoBarbeiroScreen extends StatefulWidget {
   final PerfilUsuario perfil;
@@ -25,13 +25,6 @@ class ComissaoBarbeiroScreen extends StatefulWidget {
 
   @override
   State<ComissaoBarbeiroScreen> createState() => _ComissaoBarbeiroScreenState();
-}
-
-class _EntradaPagamento {
-  final String forma;
-  final String observacoes;
-
-  const _EntradaPagamento(this.forma, this.observacoes);
 }
 
 class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
@@ -66,14 +59,12 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
     DadosComissaoBarbeiro dados,
     ComissaoConfig cfg,
   ) async {
-    final periodo = _periodoPagavel(dados, cfg);
-
-    final entrada = await showDialog<_EntradaPagamento>(
+    final entrada = await showDialog<EntradaPagamentoComissao>(
       context: context,
-      builder: (_) => _DialogPagarComissao(
+      builder: (_) => DialogPagarComissao(
         nome: widget.barbeiroNome,
         valorCentavos: dados.totalCentavos,
-        periodo: periodo,
+        periodo: _periodoPagavel(dados, cfg),
       ),
     );
 
@@ -146,123 +137,6 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
           letterSpacing: 2,
           fontSize: 12,
         ),
-      ),
-    );
-  }
-
-  Widget _tileComissao(Comissao c, {bool estorno = false}) {
-    final cor = estorno ? Colors.redAccent : dourado;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: BoxDecoration(
-        color: cartao,
-        borderRadius: BorderRadius.circular(13),
-        border: Border.all(color: bordaCartao),
-      ),
-      child: ExpansionTile(
-        shape: const Border(),
-        collapsedShape: const Border(),
-        iconColor: dourado,
-        collapsedIconColor: Colors.white54,
-        title: Text(
-          '#${c.comandaNumero} • '
-          '${c.clienteNome.isEmpty ? 'Sem cadastro' : c.clienteNome}',
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-        ),
-        subtitle: Text(
-          '${formatarDiaIso(c.dia)}${estorno ? ' • comanda estornada' : ''}',
-          style: TextStyle(
-            color: estorno ? Colors.redAccent : Colors.white54,
-            fontSize: 12,
-          ),
-        ),
-        trailing: Text(
-          '${estorno ? '− ' : ''}${Dinheiro.formatar(c.totalCentavos)}',
-          style: TextStyle(color: cor, fontWeight: FontWeight.bold),
-        ),
-        children: [
-          for (final l in c.linhas)
-            ListTile(
-              dense: true,
-              title: Text(l.nome, style: const TextStyle(fontSize: 13)),
-              subtitle: Text(
-                'base ${Dinheiro.formatar(l.baseCentavos)} x '
-                '${bpParaTexto(l.bp)}',
-                style: const TextStyle(color: Colors.white54, fontSize: 12),
-              ),
-              trailing: Text(
-                Dinheiro.formatar(l.comissaoCentavos),
-                style: const TextStyle(fontSize: 13),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _itemPagamento(PagamentoComissao p, bool ultimo) {
-    final detalhes = <String>[
-      formatarDataHora(p.criadoEm?.toDate()),
-      rotuloForma(p.forma),
-      'por ${p.pagoPorNome}',
-    ];
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.fromLTRB(14, 10, 4, 10),
-      decoration: BoxDecoration(
-        color: cartao,
-        borderRadius: BorderRadius.circular(13),
-        border: Border.all(color: bordaCartao),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.payments_outlined,
-            color: p.estornado ? Colors.white38 : dourado,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  Dinheiro.formatar(p.valorCentavos),
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: p.estornado ? Colors.white38 : Colors.white,
-                    decoration:
-                        p.estornado ? TextDecoration.lineThrough : null,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  detalhes.join(' • '),
-                  style: const TextStyle(color: Colors.white54, fontSize: 12),
-                ),
-                if (p.estornado)
-                  Text(
-                    'ESTORNADO por ${p.estornadoPorNome}',
-                    style: const TextStyle(
-                      color: Colors.redAccent,
-                      fontSize: 12,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          if (_admin && ultimo && !p.estornado)
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert, color: Colors.white70),
-              onSelected: (_) => _estornar(p),
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'estornar', child: Text('Estornar')),
-              ],
-            )
-          else
-            const SizedBox(width: 10),
-        ],
       ),
     );
   }
@@ -426,16 +300,18 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
           ),
         ),
         if (cfg.semanal) _cartaoAndamento(d, cfg, agora),
-        _titulo(cfg.semanal ? 'COMISSÕES DAS SEMANAS FECHADAS' : 'COMISSÕES A RECEBER'),
+        _titulo(
+          cfg.semanal ? 'COMISSÕES DAS SEMANAS FECHADAS' : 'COMISSÕES A RECEBER',
+        ),
         if (nadaFechado)
           const Text(
             'Nenhuma comissão pendente.',
             style: TextStyle(color: Colors.white54),
           ),
-        for (final c in d.creditos) _tileComissao(c),
+        for (final c in d.creditos) TileComissao(comissao: c),
         if (d.estornos.isNotEmpty) ...[
           _titulo('ESTORNOS NESTA JANELA'),
-          for (final c in d.estornos) _tileComissao(c, estorno: true),
+          for (final c in d.estornos) TileComissao(comissao: c, estorno: true),
         ],
         _titulo('HISTÓRICO DE PAGAMENTOS'),
         if (d.pagamentos.isEmpty)
@@ -444,7 +320,11 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
             style: TextStyle(color: Colors.white54),
           ),
         for (final p in d.pagamentos)
-          _itemPagamento(p, d.ultimoValido?.id == p.id),
+          ItemPagamentoComissao(
+            pagamento: p,
+            podeEstornar: _admin && d.ultimoValido?.id == p.id,
+            onEstornar: () => _estornar(p),
+          ),
         const SizedBox(height: 20),
       ],
     );
@@ -503,115 +383,3 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
     );
   }
 }
-
-class _DialogPagarComissao extends StatefulWidget {
-  final String nome;
-  final int valorCentavos;
-  final String periodo;
-
-  const _DialogPagarComissao({
-    required this.nome,
-    required this.valorCentavos,
-    required this.periodo,
-  });
-
-  @override
-  State<_DialogPagarComissao> createState() => _DialogPagarComissaoState();
-}
-
-class _DialogPagarComissaoState extends State<_DialogPagarComissao> {
-  final _observacoes = TextEditingController();
-  String _forma = 'dinheiro';
-  bool _confirmou = false;
-  String? _erro;
-
-  @override
-  void dispose() {
-    _observacoes.dispose();
-    super.dispose();
-  }
-
-  void _confirmar() {
-    if (!_confirmou) {
-      setState(() => _erro = 'Marque a confirmação do pagamento.');
-      return;
-    }
-    Navigator.pop(context, _EntradaPagamento(_forma, _observacoes.text.trim()));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: cartao,
-      title: const Text('Pagar comissão', style: TextStyle(color: dourado)),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '${widget.nome}: ${Dinheiro.formatar(widget.valorCentavos)}',
-              style: const TextStyle(
-                color: dourado,
-                fontWeight: FontWeight.bold,
-                fontSize: 18,
-              ),
-            ),
-            if (widget.periodo.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(
-                'Período: ${widget.periodo}',
-                style: const TextStyle(color: Colors.white70, fontSize: 13),
-              ),
-            ],
-            const SizedBox(height: 14),
-            const Text('Forma de pagamento:'),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final f in formasPagamento.where(
-                  (f) => f.chave == 'dinheiro' || f.chave == 'pix',
-                ))
-                  ChoiceChip(
-                    label: Text(f.rotulo),
-                    selected: _forma == f.chave,
-                    selectedColor: dourado,
-                    labelStyle: TextStyle(
-                      color: _forma == f.chave ? Colors.black : Colors.white,
-                    ),
-                    onSelected: (_) => setState(() => _forma = f.chave),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _observacoes,
-              maxLines: 2,
-              decoration: const InputDecoration(
-                labelText: 'Observações (opcional)',
-              ),
-            ),
-            const SizedBox(height: 6),
-            CheckboxListTile(
-              contentPadding: EdgeInsets.zero,
-              controlAffinity: ListTileControlAffinity.leading,
-              activeColor: dourado,
-              checkColor: Colors.black,
-              value: _confirmou,
-              onChanged: (v) => setState(() {
-                _confirmou = v == true;
-                _erro = null;
-              }),
-              title: const Text(
-                'Confirmo que o valor foi pago ao funcionário.',
-                style: TextStyle(fontSize: 14),
-              ),
-            ),
-            const Text(
-              'O pagamento será lançado no caixa como despesa.',
-              style: TextStyle(color: Colors.white54, fontSize: 12),
-            ),
-            if (_erro != null) ...[
-       
