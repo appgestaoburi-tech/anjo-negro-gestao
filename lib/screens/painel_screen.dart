@@ -5,6 +5,7 @@ import '../models/perfil_usuario.dart';
 import '../widgets/aniversariantes_card.dart';
 import '../widgets/cards_painel.dart';
 import '../widgets/cartao_autorizacoes.dart';
+import '../widgets/cartao_vales.dart';
 import '../widgets/indicador_comandas_abertas.dart';
 import '../widgets/indicador_entradas_dia.dart';
 import 'caixa/caixa_screen.dart';
@@ -12,14 +13,32 @@ import 'catalogo/catalogo_screen.dart';
 import 'clientes/clientes_screen.dart';
 import 'comandas/comandas_screen.dart';
 import 'comandas/nova_comanda.dart';
+import 'comissoes/comissao_barbeiro_screen.dart';
+import 'comissoes/comissoes_screen.dart';
 import 'funcionarios/funcionarios_screen.dart';
 import 'produtos/produtos_screen.dart';
 import 'telas_basicas.dart';
+import 'vales/vales_screen.dart';
 
 class PainelScreen extends StatelessWidget {
   final PerfilUsuario perfil;
 
   const PainelScreen({super.key, required this.perfil});
+
+  void _abrirComissoes(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => perfil.permissaoTotal
+            ? ComissoesScreen(perfil: perfil)
+            : ComissaoBarbeiroScreen(
+                perfil: perfil,
+                barbeiroUid: perfil.uid,
+                barbeiroNome: perfil.nome,
+              ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -87,6 +106,8 @@ class PainelScreen extends StatelessWidget {
               if (perfil.permissaoTotal) ...[
                 const SizedBox(height: 14),
                 CartaoAutorizacoes(perfil: perfil),
+                const SizedBox(height: 10),
+                CartaoVales(perfil: perfil),
               ],
               const SizedBox(height: 14),
               const AniversariantesCard(),
@@ -163,6 +184,21 @@ class PainelScreen extends StatelessWidget {
                         ),
                       ),
                     ),
+                  ModuloCard(
+                    titulo: 'Comissões',
+                    icone: Icons.percent,
+                    onTap: () => _abrirComissoes(context),
+                  ),
+                  ModuloCard(
+                    titulo: perfil.permissaoTotal ? 'Vales' : 'Meus vales',
+                    icone: Icons.account_balance_wallet_outlined,
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ValesScreen(perfil: perfil),
+                      ),
+                    ),
+                  ),
                   ModuloCard(
                     titulo: 'Relatórios',
                     icone: Icons.bar_chart,
