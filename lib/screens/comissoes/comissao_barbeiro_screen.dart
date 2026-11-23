@@ -4,10 +4,12 @@ import '../../config/tema.dart';
 import '../../models/comissao.dart';
 import '../../models/perfil_usuario.dart';
 import '../../repositories/comissao_repository.dart';
+import '../../repositories/configuracao_repository.dart';
 import '../../utils/datas.dart';
 import '../../utils/dinheiro.dart';
 import '../../utils/erros.dart';
 import '../../utils/percentual.dart';
+import '../../utils/periodo_comissao.dart';
 
 class ComissaoBarbeiroScreen extends StatefulWidget {
   final PerfilUsuario perfil;
@@ -34,8 +36,10 @@ class _EntradaPagamento {
 
 class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
   final _repo = ComissaoRepository();
-  late final Stream<DadosComissaoBarbeiro> _stream =
+  late final Stream<BrutoComissao> _bruto =
       _repo.observarBarbeiro(widget.barbeiroUid);
+  late final Stream<ComissaoConfig> _config =
+      ConfiguracaoRepository().observarComissoes();
 
   bool get _admin => widget.perfil.permissaoTotal;
 
@@ -46,12 +50,30 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
     );
   }
 
-  Future<void> _pagar(DadosComissaoBarbeiro dados) async {
+  String _periodoPagavel(DadosComissaoBarbeiro d, ComissaoConfig cfg) {
+    if (!cfg.semanal || d.corte == null) return '';
+
+    final fim = diaDe(d.corte!);
+
+    if (d.de == null) return 'até ${formatarDia(fim)}';
+
+    final anterior = diaDe(d.de!);
+    final ini = DateTime(anterior.year, anterior.month, anterior.day + 1);
+    return '${formatarDia(ini)} a ${formatarDia(fim)}';
+  }
+
+  Future<void> _pagar(
+    DadosComissaoBarbeiro dados,
+    ComissaoConfig cfg,
+  ) async {
+    final periodo = _periodoPagavel(dados, cfg);
+
     final entrada = await showDialog<_EntradaPagamento>(
       context: context,
       builder: (_) => _DialogPagarComissao(
         nome: widget.barbeiroNome,
         valorCentavos: dados.totalCentavos,
+        periodo: periodo,
       ),
     );
 
@@ -63,6 +85,7 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
         barbeiroUid: widget.barbeiroUid,
         barbeiroNome: widget.barbeiroNome,
         dados: dados,
+        modo: cfg.modo,
         forma: entrada.forma,
         observacoes: entrada.observacoes,
       );
@@ -244,9 +267,75 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
     );
   }
 
-  Widget _conteudo(DadosComissaoBarbeiro d) {
+  Widget _cartaoAndamento(
+    DadosComissaoBarbeiro d,
+    ComissaoConfig cfg,
+    DateTime agora,
+  ) {
+    final inicio = inicioSemanaAtual(agora, cfg.diaInicio);
+    final fimSemana = DateTime(inicio.year, inicio.month, inicio.day + 6);
+    final proximo = DateTime(inicio.year, inicio.month, inicio.day + 7);
+
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cartao,
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: bordaCartao),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'SEMANA EM ANDAMENTO',
+            style: TextStyle(
+              color: Colors.white70,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.5,
+              fontSize: 12,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            Dinheiro.formatar(d.andamentoCentavos),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 22,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${formatarDia(inicio)} a ${formatarDia(fimSemana)} • '
+            '${d.andamentoQtd} comissão(ões). Será paga a partir de '
+            '${nomesDiasSemana[proximo.weekday].toLowerCase()}, '
+            '${formatarDia(proximo)}.',
+            style: const TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _conteudo(
+    DadosComissaoBarbeiro d,
+    ComissaoConfig cfg,
+    DateTime agora,
+  ) {
     final total = d.totalCentavos;
     final cor = total < 0 ? Colors.redAccent : dourado;
+
+    // No modo semanal, o pagamento só é liberado 10 minutos depois da
+    // virada da semana (a regra do Firebase também confere isso).
+    final liberado = !cfg.semanal ||
+        agora.isAfter(
+          inicioSemanaAtual(agora, cfg.diaInicio)
+              .add(const Duration(minutes: 10)),
+        );
+
+    final periodo = _periodoPagavel(d, cfg);
+    final nadaFechado = d.creditos.isEmpty && d.estornos.isEmpty;
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -261,9 +350,9 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'A RECEBER',
-                style: TextStyle(
+              Text(
+                cfg.semanal ? 'A RECEBER (SEMANAS FECHADAS)' : 'A RECEBER',
+                style: const TextStyle(
                   color: dourado,
                   fontWeight: FontWeight.bold,
                   letterSpacing: 2,
@@ -279,12 +368,25 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
                   fontSize: 30,
                 ),
               ),
+              if (periodo.isNotEmpty && !nadaFechado)
+                Text(
+                  'Período: $periodo',
+                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                ),
               const SizedBox(height: 4),
               Text(
                 'Comissões: ${Dinheiro.formatar(d.creditosCentavos)}'
                 '${d.estornosCentavos > 0 ? ' • Estornos: − ${Dinheiro.formatar(d.estornosCentavos)}' : ''}',
                 style: const TextStyle(color: Colors.white54, fontSize: 12),
               ),
+              if (cfg.semanal && nadaFechado)
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Text(
+                    'Nenhuma semana fechada com comissão a pagar.',
+                    style: TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                ),
               if (total < 0)
                 const Padding(
                   padding: EdgeInsets.only(top: 6),
@@ -294,30 +396,38 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
                     style: TextStyle(color: Colors.redAccent, fontSize: 12),
                   ),
                 ),
-              if (_admin && total > 0) ...[
+              if (_admin && total > 0 && d.ate != null) ...[
                 const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: ElevatedButton.icon(
-                    onPressed: () => _pagar(d),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: dourado,
-                      foregroundColor: Colors.black,
-                    ),
-                    icon: const Icon(Icons.payments_outlined),
-                    label: const Text(
-                      'PAGAR COMISSÃO',
-                      style: TextStyle(fontWeight: FontWeight.bold),
+                if (!liberado)
+                  const Text(
+                    'O pagamento é liberado 10 minutos depois da virada da '
+                    'semana.',
+                    style: TextStyle(color: Colors.orangeAccent, fontSize: 12),
+                  )
+                else
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      onPressed: () => _pagar(d, cfg),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: dourado,
+                        foregroundColor: Colors.black,
+                      ),
+                      icon: const Icon(Icons.payments_outlined),
+                      label: const Text(
+                        'PAGAR COMISSÃO',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
                     ),
                   ),
-                ),
               ],
             ],
           ),
         ),
-        _titulo('COMISSÕES A RECEBER'),
-        if (d.creditos.isEmpty && d.estornos.isEmpty)
+        if (cfg.semanal) _cartaoAndamento(d, cfg, agora),
+        _titulo(cfg.semanal ? 'COMISSÕES DAS SEMANAS FECHADAS' : 'COMISSÕES A RECEBER'),
+        if (nadaFechado)
           const Text(
             'Nenhuma comissão pendente.',
             style: TextStyle(color: Colors.white54),
@@ -345,32 +455,49 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          _admin ? 'COMISSÃO • ${widget.barbeiroNome.toUpperCase()}' : 'MINHAS COMISSÕES',
+          _admin
+              ? 'COMISSÃO • ${widget.barbeiroNome.toUpperCase()}'
+              : 'MINHAS COMISSÕES',
         ),
       ),
-      body: StreamBuilder<DadosComissaoBarbeiro>(
-        stream: _stream,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: SelectableText(
-                  'Erro ao carregar as comissões:\n\n${snapshot.error}',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.redAccent),
-                ),
-              ),
-            );
-          }
+      body: StreamBuilder<ComissaoConfig>(
+        stream: _config,
+        builder: (context, cfgSnap) {
+          final cfg = cfgSnap.data ?? const ComissaoConfig();
 
-          if (!snapshot.hasData) {
-            return const Center(
-              child: CircularProgressIndicator(color: dourado),
-            );
-          }
+          return StreamBuilder<BrutoComissao>(
+            stream: _bruto,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: SelectableText(
+                      'Erro ao carregar as comissões:\n\n${snapshot.error}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.redAccent),
+                    ),
+                  ),
+                );
+              }
 
-          return _conteudo(snapshot.data!);
+              if (!snapshot.hasData) {
+                return const Center(
+                  child: CircularProgressIndicator(color: dourado),
+                );
+              }
+
+              final agora = DateTime.now();
+              final corte =
+                  cfg.semanal ? corteSemanal(agora, cfg.diaInicio) : null;
+              final dados = DadosComissaoBarbeiro.calcular(
+                snapshot.data!,
+                corte: corte,
+              );
+
+              return _conteudo(dados, cfg, agora);
+            },
+          );
         },
       ),
     );
@@ -380,8 +507,13 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
 class _DialogPagarComissao extends StatefulWidget {
   final String nome;
   final int valorCentavos;
+  final String periodo;
 
-  const _DialogPagarComissao({required this.nome, required this.valorCentavos});
+  const _DialogPagarComissao({
+    required this.nome,
+    required this.valorCentavos,
+    required this.periodo,
+  });
 
   @override
   State<_DialogPagarComissao> createState() => _DialogPagarComissaoState();
@@ -425,6 +557,13 @@ class _DialogPagarComissaoState extends State<_DialogPagarComissao> {
                 fontSize: 18,
               ),
             ),
+            if (widget.periodo.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Período: ${widget.periodo}',
+                style: const TextStyle(color: Colors.white70, fontSize: 13),
+              ),
+            ],
             const SizedBox(height: 14),
             const Text('Forma de pagamento:'),
             const SizedBox(height: 8),
@@ -475,26 +614,4 @@ class _DialogPagarComissaoState extends State<_DialogPagarComissao> {
               style: TextStyle(color: Colors.white54, fontSize: 12),
             ),
             if (_erro != null) ...[
-              const SizedBox(height: 8),
-              Text(_erro!, style: const TextStyle(color: Colors.redAccent)),
-            ],
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('CANCELAR'),
-        ),
-        ElevatedButton(
-          onPressed: _confirmar,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: dourado,
-            foregroundColor: Colors.black,
-          ),
-          child: const Text('PAGAR'),
-        ),
-      ],
-    );
-  }
-}
+       
