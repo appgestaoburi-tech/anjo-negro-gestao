@@ -16,6 +16,7 @@ import 'comandas/nova_comanda.dart';
 import 'comissoes/comissao_barbeiro_screen.dart';
 import 'comissoes/comissoes_screen.dart';
 import 'funcionarios/funcionarios_screen.dart';
+import 'pacotes/pacotes_screen.dart';
 import 'produtos/produtos_screen.dart';
 import 'telas_basicas.dart';
 import 'vales/vales_screen.dart';
@@ -157,6 +158,17 @@ class PainelScreen extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (perfil.permissaoTotal)
+                    ModuloCard(
+                      titulo: 'Pacotes',
+                      icone: Icons.card_membership,
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const PacotesScreen(),
+                        ),
+                      ),
+                    ),
                   ModuloCard(
                     titulo: 'Estoque',
                     icone: Icons.inventory_2_outlined,
