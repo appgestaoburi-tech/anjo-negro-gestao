@@ -2,7 +2,9 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/comissao.dart';
 import '../models/perfil_usuario.dart';
+import '../models/vale.dart';
 import '../utils/datas.dart';
+import '../utils/dinheiro.dart';
 
 Timestamp? _maior(Timestamp? a, Timestamp? b) {
   if (a == null) return b;
@@ -150,6 +152,8 @@ class ComissaoRepository {
       _firestore.collection('controlesComissao');
   CollectionReference<Map<String, dynamic>> get _despesas =>
       _firestore.collection('despesas');
+  CollectionReference<Map<String, dynamic>> get _vales =>
+      _firestore.collection('vales');
 
   Stream<BrutoComissao> observarBarbeiro(String barbeiroUid) {
     late final StreamController<BrutoComissao> controller;
@@ -195,14 +199,16 @@ class ComissaoRepository {
     return controller.stream;
   }
 
-  /// Paga tudo o que está a receber até o corte. O pagamento entra no
-  /// caixa como despesa (categoria Comissões). O documento de controle
-  /// garante que duas pessoas não paguem a mesma janela duas vezes.
+  /// Paga a comissão até o corte, já descontando os vales [valesDescontar]
+  /// (pagos até o corte). O valor pago entra no caixa como despesa. O
+  /// documento de controle garante que duas pessoas não paguem a mesma
+  /// janela duas vezes.
   Future<void> pagar({
     required PerfilUsuario perfil,
     required String barbeiroUid,
     required String barbeiroNome,
     required DadosComissaoBarbeiro dados,
+    required List<Vale> valesDescontar,
     required String modo,
     required String forma,
     required String observacoes,
@@ -210,8 +216,15 @@ class ComissaoRepository {
     if (!perfil.permissaoTotal) {
       throw Exception('Somente o administrador pode pagar comissões.');
     }
-    if (dados.totalCentavos <= 0 || dados.ate == null) {
-      throw Exception('Não há comissão a pagar.');
+
+    final totalVales =
+        valesDescontar.fold<int>(0, (s, v) => s + v.saldoCentavos);
+    final liquido = dados.totalCentavos - totalVales;
+
+    if (liquido <= 0 || dados.ate == null) {
+      throw Exception(
+        'Não há comissão a pagar (os vales cobrem o valor da semana).',
+      );
     }
 
     final controleRef = _controles.doc(barbeiroUid);
@@ -219,7 +232,17 @@ class ComissaoRepository {
     final despesaRef = _despesas.doc();
     final hoje = diaIso(DateTime.now());
 
+    final notaVales = totalVales > 0
+        ? 'Comissão ${Dinheiro.formatar(dados.totalCentavos)} − '
+            'vales ${Dinheiro.formatar(totalVales)}'
+        : '';
+    final observacoesDespesa = [
+      if (observacoes.isNotEmpty) observacoes,
+      if (notaVales.isNotEmpty) notaVales,
+    ].join(' • ');
+
     await _firestore.runTransaction((tx) async {
+      // Leituras primeiro.
       final controle = await tx.get(controleRef);
       final atual = controle.data()?['ate'];
       final atualTs = atual is Timestamp ? atual : null;
@@ -230,6 +253,23 @@ class ComissaoRepository {
         );
       }
 
+      for (final v in valesDescontar) {
+        final snap = await tx.get(_vales.doc(v.id));
+        final d = snap.data();
+
+        final valor = (d?['valorCentavos'] as num?)?.toInt() ?? 0;
+        final descontado = (d?['descontadoCentavos'] as num?)?.toInt() ?? 0;
+
+        if (!snap.exists ||
+            d?['status'] != 'pago' ||
+            valor - descontado != v.saldoCentavos) {
+          throw Exception(
+            'Os vales mudaram. Volte e abra a tela de novo antes de pagar.',
+          );
+        }
+      }
+
+      // Escritas.
       tx.set(controleRef, {
         'ate': dados.ate,
         'atualizadoEm': FieldValue.serverTimestamp(),
@@ -238,7 +278,13 @@ class ComissaoRepository {
       tx.set(pagamentoRef, {
         'barbeiroUid': barbeiroUid,
         'barbeiroNome': barbeiroNome,
-        'valorCentavos': dados.totalCentavos,
+        'valorCentavos': liquido,
+        'comissaoCentavos': dados.totalCentavos,
+        'valesDescontadosCentavos': totalVales,
+        'descontosVales': [
+          for (final v in valesDescontar)
+            {'valeId': v.id, 'valorCentavos': v.saldoCentavos},
+        ],
         'creditosCentavos': dados.creditosCentavos,
         'estornosCentavos': dados.estornosCentavos,
         'qtdCreditos': dados.creditos.length,
@@ -256,13 +302,19 @@ class ComissaoRepository {
         'criadoEm': FieldValue.serverTimestamp(),
       });
 
+      for (final v in valesDescontar) {
+        tx.update(_vales.doc(v.id), {
+          'descontadoCentavos': v.valorCentavos,
+        });
+      }
+
       tx.set(despesaRef, {
         'descricao': 'Comissão - $barbeiroNome',
         'categoria': 'Comissões',
-        'valorCentavos': dados.totalCentavos,
+        'valorCentavos': liquido,
         'dia': hoje,
         'forma': forma,
-        'observacoes': observacoes,
+        'observacoes': observacoesDespesa,
         'origem': 'comissao',
         'pagamentoComissaoId': pagamentoRef.id,
         'cancelada': false,
@@ -274,7 +326,8 @@ class ComissaoRepository {
   }
 
   /// Só o último pagamento válido de cada barbeiro pode ser estornado.
-  /// O valor volta a ficar a receber e a despesa do caixa é cancelada.
+  /// O valor volta a ficar a receber, os vales descontados voltam a ficar
+  /// a descontar e a despesa do caixa é cancelada.
   Future<void> estornarPagamento(
     String pagamentoId,
     PerfilUsuario perfil,
@@ -309,6 +362,30 @@ class ComissaoRepository {
         );
       }
 
+      // Vales descontados neste pagamento (leitura antes das escritas).
+      final devolucoes = <MapEntry<DocumentReference<Map<String, dynamic>>, int>>[];
+      final descontos = d['descontosVales'];
+
+      if (descontos is List) {
+        for (final m in descontos) {
+          if (m is! Map) continue;
+
+          final valeId = (m['valeId'] ?? '').toString();
+          final valor = (m['valorCentavos'] as num?)?.toInt() ?? 0;
+          if (valeId.isEmpty || valor <= 0) continue;
+
+          final ref = _vales.doc(valeId);
+          final valeSnap = await tx.get(ref);
+          if (!valeSnap.exists) continue;
+
+          final atualDescontado =
+              (valeSnap.data()?['descontadoCentavos'] as num?)?.toInt() ?? 0;
+          final novo = atualDescontado - valor;
+
+          devolucoes.add(MapEntry(ref, novo < 0 ? 0 : novo));
+        }
+      }
+
       tx.update(pagamentoRef, {
         'estornado': true,
         'estornadoPorUid': perfil.uid,
@@ -320,6 +397,10 @@ class ComissaoRepository {
         'ate': de,
         'atualizadoEm': FieldValue.serverTimestamp(),
       });
+
+      for (final dev in devolucoes) {
+        tx.update(dev.key, {'descontadoCentavos': dev.value});
+      }
 
       final despesaId = (d['despesaId'] ?? '').toString();
       if (despesaId.isNotEmpty) {
