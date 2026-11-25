@@ -12,12 +12,16 @@ class EntradaPagamentoComissao {
 
 class DialogPagarComissao extends StatefulWidget {
   final String nome;
-  final int valorCentavos;
+  final int comissaoCentavos;
+  final int valesCentavos;
+  final int valorCentavos; // a pagar, já sem os vales
   final String periodo;
 
   const DialogPagarComissao({
     super.key,
     required this.nome,
+    required this.comissaoCentavos,
+    required this.valesCentavos,
     required this.valorCentavos,
     required this.periodo,
   });
@@ -49,6 +53,29 @@ class _DialogPagarComissaoState extends State<DialogPagarComissao> {
     );
   }
 
+  Widget _linha(String rotulo, String valor, {Color? cor}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              rotulo,
+              style: const TextStyle(color: Colors.white70, fontSize: 14),
+            ),
+          ),
+          Text(
+            valor,
+            style: TextStyle(
+              color: cor ?? Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -60,20 +87,28 @@ class _DialogPagarComissaoState extends State<DialogPagarComissao> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '${widget.nome}: ${Dinheiro.formatar(widget.valorCentavos)}',
-              style: const TextStyle(
-                color: dourado,
-                fontWeight: FontWeight.bold,
-                fontSize: 18,
-              ),
+              widget.nome,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
-            if (widget.periodo.isNotEmpty) ...[
-              const SizedBox(height: 4),
+            if (widget.periodo.isNotEmpty)
               Text(
                 'Período: ${widget.periodo}',
-                style: const TextStyle(color: Colors.white70, fontSize: 13),
+                style: const TextStyle(color: Colors.white54, fontSize: 13),
               ),
-            ],
+            const SizedBox(height: 12),
+            _linha('Comissões', Dinheiro.formatar(widget.comissaoCentavos)),
+            if (widget.valesCentavos > 0)
+              _linha(
+                'Vales descontados',
+                '− ${Dinheiro.formatar(widget.valesCentavos)}',
+                cor: Colors.orangeAccent,
+              ),
+            const Divider(color: bordaCartao),
+            _linha(
+              'A pagar',
+              Dinheiro.formatar(widget.valorCentavos),
+              cor: dourado,
+            ),
             const SizedBox(height: 14),
             const Text('Forma de pagamento:'),
             const SizedBox(height: 8),
@@ -120,7 +155,7 @@ class _DialogPagarComissaoState extends State<DialogPagarComissao> {
               ),
             ),
             const Text(
-              'O pagamento será lançado no caixa como despesa.',
+              'O valor pago será lançado no caixa como despesa.',
               style: TextStyle(color: Colors.white54, fontSize: 12),
             ),
             if (_erro != null) ...[
