@@ -121,6 +121,15 @@ class ItemPagamentoComissao extends StatelessWidget {
                   detalhes.join(' • '),
                   style: const TextStyle(color: Colors.white54, fontSize: 12),
                 ),
+                if (p.valesDescontadosCentavos > 0)
+                  Text(
+                    'Comissão ${Dinheiro.formatar(p.comissaoCentavos)} − '
+                    'vales ${Dinheiro.formatar(p.valesDescontadosCentavos)}',
+                    style: const TextStyle(
+                      color: Colors.orangeAccent,
+                      fontSize: 12,
+                    ),
+                  ),
                 if (p.estornado)
                   Text(
                     'ESTORNADO por ${p.estornadoPorNome}',
