@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import '../../config/tema.dart';
 import '../../models/comissao.dart';
 import '../../models/perfil_usuario.dart';
+import '../../models/vale.dart';
 import '../../repositories/comissao_repository.dart';
 import '../../repositories/configuracao_repository.dart';
+import '../../repositories/vale_repository.dart';
 import '../../utils/datas.dart';
+import '../../utils/desconto_vales.dart';
 import '../../utils/dinheiro.dart';
 import '../../utils/erros.dart';
 import '../../utils/periodo_comissao.dart';
@@ -33,6 +36,8 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
       _repo.observarBarbeiro(widget.barbeiroUid);
   late final Stream<ComissaoConfig> _config =
       ConfiguracaoRepository().observarComissoes();
+  late final Stream<List<Vale>> _vales =
+      ValeRepository().observarDoBarbeiro(widget.barbeiroUid);
 
   bool get _admin => widget.perfil.permissaoTotal;
 
@@ -58,12 +63,17 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
   Future<void> _pagar(
     DadosComissaoBarbeiro dados,
     ComissaoConfig cfg,
+    PlanoVales plano,
   ) async {
+    final liquido = dados.totalCentavos - plano.totalCentavos;
+
     final entrada = await showDialog<EntradaPagamentoComissao>(
       context: context,
       builder: (_) => DialogPagarComissao(
         nome: widget.barbeiroNome,
-        valorCentavos: dados.totalCentavos,
+        comissaoCentavos: dados.totalCentavos,
+        valesCentavos: plano.totalCentavos,
+        valorCentavos: liquido,
         periodo: _periodoPagavel(dados, cfg),
       ),
     );
@@ -76,6 +86,7 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
         barbeiroUid: widget.barbeiroUid,
         barbeiroNome: widget.barbeiroNome,
         dados: dados,
+        valesDescontar: plano.aDescontar,
         modo: cfg.modo,
         forma: entrada.forma,
         observacoes: entrada.observacoes,
@@ -97,7 +108,8 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
         ),
         content: Text(
           'Estornar o pagamento de ${Dinheiro.formatar(p.valorCentavos)}? '
-          'O valor volta a ficar a receber e a despesa no caixa é cancelada.',
+          'O valor volta a ficar a receber, os vales descontados voltam a '
+          'ficar a descontar e a despesa no caixa é cancelada.',
         ),
         actions: [
           TextButton(
@@ -141,10 +153,35 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
     );
   }
 
+  Widget _linhaValor(String rotulo, String valor, {Color? cor}) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 3),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              rotulo,
+              style: const TextStyle(color: Colors.white54, fontSize: 13),
+            ),
+          ),
+          Text(
+            valor,
+            style: TextStyle(
+              color: cor ?? Colors.white70,
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _cartaoAndamento(
     DadosComissaoBarbeiro d,
     ComissaoConfig cfg,
     DateTime agora,
+    PlanoVales plano,
   ) {
     final inicio = inicioSemanaAtual(agora, cfg.diaInicio);
     final fimSemana = DateTime(inicio.year, inicio.month, inicio.day + 6);
@@ -187,6 +224,19 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
             '${formatarDia(proximo)}.',
             style: const TextStyle(color: Colors.white54, fontSize: 12),
           ),
+          if (plano.aposLimiteCentavos > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                'Vales pagos nesta semana: '
+                '${Dinheiro.formatar(plano.aposLimiteCentavos)} '
+                '(serão descontados no próximo pagamento).',
+                style: const TextStyle(
+                  color: Colors.orangeAccent,
+                  fontSize: 12,
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -196,9 +246,14 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
     DadosComissaoBarbeiro d,
     ComissaoConfig cfg,
     DateTime agora,
+    List<Vale> vales,
   ) {
-    final total = d.totalCentavos;
-    final cor = total < 0 ? Colors.redAccent : dourado;
+    final plano = planejarVales(vales, limite: cfg.semanal ? d.corte : null);
+
+    final comissao = d.totalCentavos;
+    final liquido = comissao - plano.totalCentavos;
+    final valesCobrem = comissao > 0 && plano.totalCentavos >= comissao;
+    final cor = liquido < 0 ? Colors.redAccent : dourado;
 
     // No modo semanal, o pagamento só é liberado 10 minutos depois da
     // virada da semana (a regra do Firebase também confere isso).
@@ -235,7 +290,7 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                Dinheiro.formatar(total),
+                Dinheiro.formatar(liquido < 0 ? 0 : liquido),
                 style: TextStyle(
                   color: cor,
                   fontWeight: FontWeight.bold,
@@ -247,12 +302,20 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
                   'Período: $periodo',
                   style: const TextStyle(color: Colors.white70, fontSize: 13),
                 ),
-              const SizedBox(height: 4),
-              Text(
-                'Comissões: ${Dinheiro.formatar(d.creditosCentavos)}'
-                '${d.estornosCentavos > 0 ? ' • Estornos: − ${Dinheiro.formatar(d.estornosCentavos)}' : ''}',
-                style: const TextStyle(color: Colors.white54, fontSize: 12),
-              ),
+              const SizedBox(height: 6),
+              _linhaValor('Comissões', Dinheiro.formatar(d.creditosCentavos)),
+              if (d.estornosCentavos > 0)
+                _linhaValor(
+                  'Estornos de comanda',
+                  '− ${Dinheiro.formatar(d.estornosCentavos)}',
+                  cor: Colors.redAccent,
+                ),
+              if (plano.totalCentavos > 0 && comissao > 0)
+                _linhaValor(
+                  'Vales a descontar',
+                  '− ${Dinheiro.formatar(plano.totalCentavos)}',
+                  cor: Colors.orangeAccent,
+                ),
               if (cfg.semanal && nadaFechado)
                 const Padding(
                   padding: EdgeInsets.only(top: 6),
@@ -261,16 +324,30 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
                     style: TextStyle(color: Colors.white54, fontSize: 12),
                   ),
                 ),
-              if (total < 0)
+              if (valesCobrem)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Os vales cobrem a comissão deste período. Nada a pagar '
+                    'agora: a diferença de '
+                    '${Dinheiro.formatar(plano.totalCentavos - comissao)} '
+                    'será descontada das próximas comissões.',
+                    style: const TextStyle(
+                      color: Colors.orangeAccent,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              if (comissao < 0)
                 const Padding(
-                  padding: EdgeInsets.only(top: 6),
+                  padding: EdgeInsets.only(top: 8),
                   child: Text(
                     'Saldo negativo: houve estorno de comissão já paga. '
                     'O valor será descontado das próximas comissões.',
                     style: TextStyle(color: Colors.redAccent, fontSize: 12),
                   ),
                 ),
-              if (_admin && total > 0 && d.ate != null) ...[
+              if (_admin && liquido > 0 && d.ate != null) ...[
                 const SizedBox(height: 12),
                 if (!liberado)
                   const Text(
@@ -283,7 +360,7 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
                     width: double.infinity,
                     height: 48,
                     child: ElevatedButton.icon(
-                      onPressed: () => _pagar(d, cfg),
+                      onPressed: () => _pagar(d, cfg, plano),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: dourado,
                         foregroundColor: Colors.black,
@@ -299,7 +376,7 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
             ],
           ),
         ),
-        if (cfg.semanal) _cartaoAndamento(d, cfg, agora),
+        if (cfg.semanal) _cartaoAndamento(d, cfg, agora, plano),
         _titulo(
           cfg.semanal ? 'COMISSÕES DAS SEMANAS FECHADAS' : 'COMISSÕES A RECEBER',
         ),
@@ -345,37 +422,45 @@ class _ComissaoBarbeiroScreenState extends State<ComissaoBarbeiroScreen> {
         builder: (context, cfgSnap) {
           final cfg = cfgSnap.data ?? const ComissaoConfig();
 
-          return StreamBuilder<BrutoComissao>(
-            stream: _bruto,
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: SelectableText(
-                      'Erro ao carregar as comissões:\n\n${snapshot.error}',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.redAccent),
-                    ),
-                  ),
-                );
-              }
+          return StreamBuilder<List<Vale>>(
+            stream: _vales,
+            builder: (context, valesSnap) {
+              final vales = valesSnap.data ?? const <Vale>[];
 
-              if (!snapshot.hasData) {
-                return const Center(
-                  child: CircularProgressIndicator(color: dourado),
-                );
-              }
+              return StreamBuilder<BrutoComissao>(
+                stream: _bruto,
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: SelectableText(
+                          'Erro ao carregar as comissões:\n\n'
+                          '${snapshot.error}',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.redAccent),
+                        ),
+                      ),
+                    );
+                  }
 
-              final agora = DateTime.now();
-              final corte =
-                  cfg.semanal ? corteSemanal(agora, cfg.diaInicio) : null;
-              final dados = DadosComissaoBarbeiro.calcular(
-                snapshot.data!,
-                corte: corte,
+                  if (!snapshot.hasData) {
+                    return const Center(
+                      child: CircularProgressIndicator(color: dourado),
+                    );
+                  }
+
+                  final agora = DateTime.now();
+                  final corte =
+                      cfg.semanal ? corteSemanal(agora, cfg.diaInicio) : null;
+                  final dados = DadosComissaoBarbeiro.calcular(
+                    snapshot.data!,
+                    corte: corte,
+                  );
+
+                  return _conteudo(dados, cfg, agora, vales);
+                },
               );
-
-              return _conteudo(dados, cfg, agora);
             },
           );
         },
