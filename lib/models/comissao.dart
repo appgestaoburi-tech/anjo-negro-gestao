@@ -114,7 +114,9 @@ class PagamentoComissao {
   final String id;
   final String barbeiroUid;
   final String barbeiroNome;
-  final int valorCentavos;
+  final int valorCentavos; // valor efetivamente pago (já sem os vales)
+  final int comissaoCentavos; // comissão antes de descontar os vales
+  final int valesDescontadosCentavos;
   final int creditosCentavos;
   final int estornosCentavos;
   final String forma;
@@ -131,6 +133,8 @@ class PagamentoComissao {
     required this.barbeiroUid,
     required this.barbeiroNome,
     required this.valorCentavos,
+    required this.comissaoCentavos,
+    required this.valesDescontadosCentavos,
     required this.creditosCentavos,
     required this.estornosCentavos,
     required this.forma,
@@ -150,12 +154,16 @@ class PagamentoComissao {
     final de = d['de'];
     final ate = d['ate'];
     final criado = d['criadoEm'];
+    final valor = (d['valorCentavos'] as num?)?.toInt() ?? 0;
 
     return PagamentoComissao(
       id: doc.id,
       barbeiroUid: (d['barbeiroUid'] ?? '').toString(),
       barbeiroNome: (d['barbeiroNome'] ?? '').toString(),
-      valorCentavos: (d['valorCentavos'] as num?)?.toInt() ?? 0,
+      valorCentavos: valor,
+      comissaoCentavos: (d['comissaoCentavos'] as num?)?.toInt() ?? valor,
+      valesDescontadosCentavos:
+          (d['valesDescontadosCentavos'] as num?)?.toInt() ?? 0,
       creditosCentavos: (d['creditosCentavos'] as num?)?.toInt() ?? 0,
       estornosCentavos: (d['estornosCentavos'] as num?)?.toInt() ?? 0,
       forma: (d['forma'] ?? '').toString(),
