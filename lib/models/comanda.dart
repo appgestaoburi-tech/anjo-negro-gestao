@@ -9,6 +9,13 @@ class ItemComanda {
   final int precoCentavos;
   final bool aPartir;
 
+  /// servico | pacote (venda de pacote) | uso (uso de pacote do cliente)
+  final String tipo;
+  final String pacoteId;
+  final Map<String, dynamic>? pacote;
+  final int valorUsoCentavos;
+  final int ciclo;
+
   const ItemComanda({
     required this.id,
     required this.servicoId,
@@ -17,9 +24,16 @@ class ItemComanda {
     required this.precoCatalogoCentavos,
     required this.precoCentavos,
     required this.aPartir,
+    this.tipo = 'servico',
+    this.pacoteId = '',
+    this.pacote,
+    this.valorUsoCentavos = 0,
+    this.ciclo = 0,
   });
 
   factory ItemComanda.doMapa(Map<String, dynamic> m) {
+    final pacoteBruto = m['pacote'];
+
     return ItemComanda(
       id: (m['id'] ?? '').toString(),
       servicoId: (m['servicoId'] ?? '').toString(),
@@ -28,6 +42,11 @@ class ItemComanda {
       precoCatalogoCentavos: (m['precoCatalogoCentavos'] as num?)?.toInt() ?? 0,
       precoCentavos: (m['precoCentavos'] as num?)?.toInt() ?? 0,
       aPartir: m['aPartir'] == true,
+      tipo: (m['tipo'] ?? 'servico').toString(),
+      pacoteId: (m['pacoteId'] ?? '').toString(),
+      pacote: pacoteBruto is Map ? Map<String, dynamic>.from(pacoteBruto) : null,
+      valorUsoCentavos: (m['valorUsoCentavos'] as num?)?.toInt() ?? 0,
+      ciclo: (m['ciclo'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -39,7 +58,15 @@ class ItemComanda {
         'precoCatalogoCentavos': precoCatalogoCentavos,
         'precoCentavos': precoCentavos,
         'aPartir': aPartir,
+        'tipo': tipo,
+        'pacoteId': pacoteId,
+        if (pacote != null) 'pacote': pacote,
+        'valorUsoCentavos': valorUsoCentavos,
+        'ciclo': ciclo,
       };
+
+  bool get ehPacote => tipo == 'pacote';
+  bool get ehUso => tipo == 'uso';
 
   ItemComanda comPreco(int novoPreco) => ItemComanda(
         id: id,
@@ -49,6 +76,11 @@ class ItemComanda {
         precoCatalogoCentavos: precoCatalogoCentavos,
         precoCentavos: novoPreco,
         aPartir: aPartir,
+        tipo: tipo,
+        pacoteId: pacoteId,
+        pacote: pacote,
+        valorUsoCentavos: valorUsoCentavos,
+        ciclo: ciclo,
       );
 }
 
@@ -117,6 +149,8 @@ class Comanda {
   final String descontoDecididoPorNome;
   final int totalCentavos;
   final int pagoCentavos;
+  final int valorUsosCentavos; // soma do valor dos usos de pacote
+  final bool coberta; // sem cobrança: só usos de pacote
   final DateTime? criadoEm;
 
   const Comanda({
@@ -140,6 +174,8 @@ class Comanda {
     required this.descontoDecididoPorNome,
     required this.totalCentavos,
     required this.pagoCentavos,
+    required this.valorUsosCentavos,
+    required this.coberta,
     required this.criadoEm,
   });
 
@@ -192,6 +228,8 @@ class Comanda {
       descontoDecididoPorNome: (d['descontoDecididoPorNome'] ?? '').toString(),
       totalCentavos: (d['totalCentavos'] as num?)?.toInt() ?? 0,
       pagoCentavos: (d['pagoCentavos'] as num?)?.toInt() ?? 0,
+      valorUsosCentavos: (d['valorUsosCentavos'] as num?)?.toInt() ?? 0,
+      coberta: d['coberta'] == true,
       criadoEm: criado is Timestamp ? criado.toDate() : null,
     );
   }
