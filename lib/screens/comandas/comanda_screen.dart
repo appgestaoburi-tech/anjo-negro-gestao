@@ -583,6 +583,5 @@ class ComandaScreen extends StatelessWidget {
                     ],
                   ),
                 ),
-                Padding(
-                  padding: const EdgeInsets.only(right: 7),
+
                   
