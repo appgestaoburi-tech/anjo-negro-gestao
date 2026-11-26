@@ -12,6 +12,7 @@ import '../../utils/erros.dart';
 import '../../utils/percentual.dart';
 import 'comanda_dialogos.dart';
 import 'dialogo_desconto.dart';
+import 'secao_pacotes_comanda.dart';
 import 'secao_pagamento.dart';
 
 class ComandaScreen extends StatelessWidget {
@@ -221,6 +222,7 @@ class ComandaScreen extends StatelessWidget {
                         () => _adicionarProduto(context, c),
                       ),
                     ],
+                    SecaoPacotesComanda(comanda: c, perfil: perfil),
                     SecaoPagamento(
                       key: ValueKey('pag-${c.id}'),
                       comanda: c,
@@ -488,17 +490,22 @@ class ComandaScreen extends StatelessWidget {
           item.nome,
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
-        subtitle: alterado
-            ? Text(
-                'Catálogo: ${Dinheiro.formatar(item.precoCatalogoCentavos)}',
-                style: const TextStyle(color: Colors.white54, fontSize: 12),
+        subtitle: item.ehPacote
+            ? const Text(
+                'Pacote • sem comissão na venda',
+                style: TextStyle(color: Colors.white54, fontSize: 12),
               )
-            : (item.aPartir
-                ? const Text(
-                    'A partir de',
-                    style: TextStyle(color: Colors.white54, fontSize: 12),
+            : (alterado
+                ? Text(
+                    'Catálogo: ${Dinheiro.formatar(item.precoCatalogoCentavos)}',
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
                   )
-                : null),
+                : (item.aPartir
+                    ? const Text(
+                        'A partir de',
+                        style: TextStyle(color: Colors.white54, fontSize: 12),
+                      )
+                    : null)),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -529,9 +536,11 @@ class ComandaScreen extends StatelessWidget {
                       value: 'preco',
                       child: Text('Ajustar preço'),
                     ),
-                  const PopupMenuItem(
+                  PopupMenuItem(
                     value: 'remover',
-                    child: Text('Remover serviço'),
+                    child: Text(
+                      item.ehPacote ? 'Remover pacote' : 'Remover serviço',
+                    ),
                   ),
                 ],
               ),
@@ -576,163 +585,4 @@ class ComandaScreen extends StatelessWidget {
                 ),
                 Padding(
                   padding: const EdgeInsets.only(right: 7),
-                  child: Text(
-                    Dinheiro.formatar(item.totalCentavos),
-                    style: const TextStyle(
-                      color: dourado,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            if (c.aberta)
-              Row(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.remove_circle_outline),
-                    color: dourado,
-                    onPressed: () => _executar(
-                      context,
-                      () => _repo.alterarQuantidadeProduto(
-                        c.id,
-                        item.id,
-                        item.quantidade - 1,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    '${item.quantidade}',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.add_circle_outline),
-                    color: dourado,
-                    onPressed: () => _executar(
-                      context,
-                      () => _repo.alterarQuantidadeProduto(
-                        c.id,
-                        item.id,
-                        item.quantidade + 1,
-                      ),
-                    ),
-                  ),
-                  const Spacer(),
-                  TextButton.icon(
-                    onPressed: () => _executar(
-                      context,
-                      () => _repo.removerProduto(c.id, item.id),
-                    ),
-                    icon: const Icon(Icons.delete_outline, size: 18),
-                    label: const Text('Remover'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: Colors.white70,
-                    ),
-                  ),
-                ],
-              )
-            else
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text(
-                    'Quantidade: ${item.quantidade}',
-                    style: const TextStyle(color: Colors.white54),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _barraTotal(Comanda c) {
-    final detalhado = c.subtotalProdutosCentavos > 0 || c.descontoCentavos > 0;
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-      decoration: const BoxDecoration(
-        color: cartao,
-        border: Border(top: BorderSide(color: bordaCartao)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (detalhado) ...[
-              _linhaValor('Serviços', c.subtotalServicosCentavos),
-              if (c.subtotalProdutosCentavos > 0) ...[
-                const SizedBox(height: 2),
-                _linhaValor('Produtos', c.subtotalProdutosCentavos),
-              ],
-              if (c.descontoCentavos > 0) ...[
-                const SizedBox(height: 2),
-                _linhaValor(
-                  'Desconto (${bpParaTexto(c.descontoBp)})',
-                  c.descontoCentavos,
-                  negativo: true,
-                ),
-              ],
-              const SizedBox(height: 8),
-            ],
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'TOTAL',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 2,
-                    color: Colors.white70,
-                  ),
-                ),
-                Text(
-                  Dinheiro.formatar(c.totalCentavos),
-                  style: const TextStyle(
-                    color: dourado,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 24,
-                  ),
-                ),
-              ],
-            ),
-            if (c.pagoCentavos > 0) ...[
-              const SizedBox(height: 6),
-              _linhaValor('Pago', c.pagoCentavos),
-              if (c.saldoCentavos > 0) ...[
-                const SizedBox(height: 2),
-                _linhaValor('Saldo a receber', c.saldoCentavos),
-              ],
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _linhaValor(String rotulo, int centavos, {bool negativo = false}) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          rotulo,
-          style: const TextStyle(color: Colors.white54, fontSize: 13),
-        ),
-        Text(
-          '${negativo ? '− ' : ''}${Dinheiro.formatar(centavos)}',
-          style: TextStyle(
-            color: negativo ? Colors.orangeAccent : Colors.white70,
-            fontSize: 13,
-          ),
-        ),
-      ],
-    );
-  }
-}
+                  
