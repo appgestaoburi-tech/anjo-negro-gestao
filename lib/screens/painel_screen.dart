@@ -16,6 +16,7 @@ import 'comandas/nova_comanda.dart';
 import 'comissoes/comissao_barbeiro_screen.dart';
 import 'comissoes/comissoes_screen.dart';
 import 'funcionarios/funcionarios_screen.dart';
+import 'pacotes/pacotes_clientes_screen.dart';
 import 'pacotes/pacotes_screen.dart';
 import 'produtos/produtos_screen.dart';
 import 'telas_basicas.dart';
@@ -145,6 +146,16 @@ class PainelScreen extends StatelessWidget {
                       context,
                       MaterialPageRoute(
                         builder: (_) => const ClientesScreen(),
+                      ),
+                    ),
+                  ),
+                  ModuloCard(
+                    titulo: 'Pacotes dos clientes',
+                    icone: Icons.card_giftcard,
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const PacotesClientesScreen(),
                       ),
                     ),
                   ),
