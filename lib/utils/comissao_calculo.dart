@@ -1,5 +1,6 @@
 import '../models/comanda.dart';
 import '../models/comissao.dart';
+import 'rateio.dart';
 
 /// Arredonda para cima a partir de meio centavo.
 int _comissao(int baseCentavos, int bp) => (baseCentavos * bp + 5000) ~/ 10000;
@@ -19,8 +20,9 @@ class ResultadoComissao {
 }
 
 /// Serviços: base = preço menos a parte do desconto da comanda, dividido
-/// proporcionalmente ao preço (o último serviço fica com o resto, para a
-/// soma fechar certinho). Produtos: preço de venda x quantidade.
+/// proporcionalmente ao preço (o último com preço fica com o resto).
+/// Venda de pacote não gera comissão. Uso de pacote: base = valor do uso.
+/// Produtos: preço de venda x quantidade.
 ResultadoComissao calcularComissao({
   required Comanda comanda,
   required int servicoPadraoBp,
@@ -33,23 +35,27 @@ ResultadoComissao calcularComissao({
   var total = 0;
 
   final servicos = comanda.servicos;
-  final subtotal = servicos.fold<int>(0, (s, i) => s + i.precoCentavos);
-  final desconto = comanda.descontoCentavos;
-  var restante = desconto;
+  final partes = ratearDesconto(
+    servicos.map((s) => s.precoCentavos).toList(),
+    comanda.descontoCentavos,
+  );
 
   for (var i = 0; i < servicos.length; i++) {
     final item = servicos[i];
 
-    var parte = 0;
-    if (desconto > 0 && subtotal > 0) {
-      parte = i == servicos.length - 1
-          ? restante
-          : (desconto * item.precoCentavos) ~/ subtotal;
-      restante -= parte;
-    }
+    if (item.ehPacote) continue;
 
-    var base = item.precoCentavos - parte;
-    if (base < 0) base = 0;
+    int base;
+    String nome;
+
+    if (item.ehUso) {
+      base = item.valorUsoCentavos;
+      nome = 'Pacote: ${item.nome}';
+    } else {
+      base = item.precoCentavos - partes[i];
+      if (base < 0) base = 0;
+      nome = item.nome;
+    }
 
     final bp = categoriasBp[item.categoria] ?? servicoPadraoBp;
     final valor = _comissao(base, bp);
@@ -57,7 +63,7 @@ ResultadoComissao calcularComissao({
     linhas.add(
       LinhaComissao(
         tipo: 'servico',
-        nome: item.nome,
+        nome: nome,
         categoria: item.categoria,
         baseCentavos: base,
         bp: bp,
