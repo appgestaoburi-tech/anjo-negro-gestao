@@ -7,6 +7,8 @@ import '../models/produto.dart';
 import '../utils/comissao_calculo.dart';
 import '../utils/datas.dart';
 import '../utils/dinheiro.dart';
+import '../utils/pacote_calculo.dart';
+import '../utils/rateio.dart';
 
 class _Movimento {
   final DocumentReference<Map<String, dynamic>> ref;
@@ -34,6 +36,10 @@ class PagamentoRepository {
       _firestore.collection('usuarios');
   CollectionReference<Map<String, dynamic>> get _comissoes =>
       _firestore.collection('comissoes');
+  CollectionReference<Map<String, dynamic>> get _clientes =>
+      _firestore.collection('clientes');
+  CollectionReference<Map<String, dynamic>> get _pacotesClientes =>
+      _firestore.collection('pacotesClientes');
 
   Stream<List<Pagamento>> observarDaComanda(
     String comandaId,
@@ -95,7 +101,8 @@ class PagamentoRepository {
   }
 
   /// Registra o pagamento. Se ele quitar a comanda, finaliza, dá baixa
-  /// no estoque e grava a comissão na MESMA operação (tudo ou nada).
+  /// no estoque, grava a comissão e cria os pacotes vendidos na MESMA
+  /// operação (tudo ou nada).
   Future<void> registrar({
     required String comandaId,
     required String forma,
@@ -153,7 +160,9 @@ class PagamentoRepository {
 
       // Todas as leituras antes de qualquer escrita.
       final baixas = <_Movimento>[];
+      final indicesPacote = <int>[];
       ResultadoComissao? comissao;
+      var telefoneCliente = '';
 
       if (quita) {
         for (final item in c.produtos) {
@@ -174,6 +183,21 @@ class PagamentoRepository {
             );
           }
           baixas.add(_Movimento(ref, p, item));
+        }
+
+        for (var i = 0; i < c.servicos.length; i++) {
+          if (c.servicos[i].ehPacote) indicesPacote.add(i);
+        }
+
+        if (indicesPacote.isNotEmpty) {
+          if (c.clienteId.isEmpty) {
+            throw Exception(
+              'Para vender pacote, a comanda precisa ter um cliente '
+              'cadastrado.',
+            );
+          }
+          final clienteSnap = await tx.get(_clientes.doc(c.clienteId));
+          telefoneCliente = (clienteSnap.data()?['telefone'] ?? '').toString();
         }
 
         final barbeiro = await tx.get(_usuarios.doc(c.barbeiroUid));
@@ -207,18 +231,26 @@ class PagamentoRepository {
         'atualizadoEm': FieldValue.serverTimestamp(),
       };
 
+      String? comissaoId;
+      final idsPacotes = <String>[
+        for (final i in indicesPacote) '${c.id}_${finalizacoes + 1}_$i',
+      ];
+
       if (quita) {
         campos['status'] = 'paga';
         campos['finalizadaEm'] = FieldValue.serverTimestamp();
         campos['finalizadaPorUid'] = perfil.uid;
         campos['finalizadaDia'] = diaIso(agora);
         campos['finalizacoes'] = finalizacoes + 1;
-      }
 
-      String? comissaoId;
-      if (comissao != null) {
-        comissaoId = '${c.id}_${finalizacoes + 1}';
-        campos['comissaoAtualId'] = comissaoId;
+        if (comissao != null && comissao.linhas.isNotEmpty) {
+          comissaoId = '${c.id}_${finalizacoes + 1}';
+          campos['comissaoAtualId'] = comissaoId;
+        }
+
+        if (idsPacotes.isNotEmpty) {
+          campos['pacotesClientesIds'] = idsPacotes;
+        }
       }
 
       tx.update(comandaRef, campos);
@@ -241,6 +273,68 @@ class PagamentoRepository {
         });
       }
 
+      // Pacotes vendidos: o valor pago já considera a parte do desconto.
+      if (indicesPacote.isNotEmpty) {
+        final partes = ratearDesconto(
+          c.servicos.map((s) => s.precoCentavos).toList(),
+          c.descontoCentavos,
+        );
+        final hoje = DateTime(agora.year, agora.month, agora.day);
+
+        for (var n = 0; n < indicesPacote.length; n++) {
+          final i = indicesPacote[n];
+          final linha = c.servicos[i];
+          final copia = linha.pacote ?? const <String, dynamic>{};
+
+          final meses = (copia['meses'] as num?)?.toInt() ?? 1;
+          final itens = <Map<String, dynamic>>[];
+          final brutos = copia['itens'];
+          if (brutos is List) {
+            for (final m in brutos) {
+              if (m is Map) itens.add(Map<String, dynamic>.from(m));
+            }
+          }
+
+          final totalUsos = itens.fold<int>(
+            0,
+            (s, m) => s + ((m['qtdTotal'] as num?)?.toInt() ?? 0),
+          );
+
+          var precoPago = linha.precoCentavos - partes[i];
+          if (precoPago < 0) precoPago = 0;
+
+          final valorUso = totalUsos > 0 ? precoPago ~/ totalUsos : 0;
+          final fim = somarMeses(hoje, meses);
+
+          tx.set(_pacotesClientes.doc(idsPacotes[n]), {
+            'clienteId': c.clienteId,
+            'clienteNome': c.clienteNome,
+            'clienteTelefone': telefoneCliente,
+            'pacoteCatalogoId': linha.pacoteId,
+            'nome': (copia['nome'] ?? linha.nome).toString(),
+            'meses': meses,
+            'itens': itens,
+            'precoPagoCentavos': precoPago,
+            'precoTabelaCentavos': linha.precoCentavos,
+            'totalUsos': totalUsos,
+            'valorUsoCentavos': valorUso,
+            'inicio': diaIso(hoje),
+            'fim': diaIso(fim),
+            'validoAte': Timestamp.fromDate(fim),
+            'status': 'ativo',
+            'comandaVendaId': c.id,
+            'comandaVendaNumero': c.numero,
+            'vendidoPorUid': perfil.uid,
+            'vendidoPorNome': perfil.nome,
+            'barbeiroVendaNome': c.barbeiroNome,
+            'contadores': <String, dynamic>{},
+            'contadoresMes': <String, dynamic>{},
+            'usosTotal': 0,
+            'criadoEm': FieldValue.serverTimestamp(),
+          });
+        }
+      }
+
       for (final b in baixas) {
         tx.update(b.ref, {
           'estoqueQtd': b.produto.estoqueQtd - b.item.quantidade,
@@ -261,8 +355,9 @@ class PagamentoRepository {
   }
 
   /// Só o administrador. O pagamento continua no histórico, marcado como
-  /// estornado. Se a comanda estava paga, ela reabre, o estoque volta e a
-  /// comissão dela é estornada.
+  /// estornado. Se a comanda estava paga, ela reabre, o estoque volta, a
+  /// comissão é estornada e os pacotes vendidos nela são cancelados (se
+  /// algum já tiver usos, o estorno é bloqueado).
   Future<void> estornar(
     String pagamentoId,
     PerfilUsuario perfil, {
@@ -296,6 +391,8 @@ class PagamentoRepository {
       final reabre = c.status == 'paga';
 
       final devolucoes = <_Movimento>[];
+      final pacotesCancelar =
+          <DocumentReference<Map<String, dynamic>>>[];
       DocumentReference<Map<String, dynamic>>? comissaoRef;
       DocumentSnapshot<Map<String, dynamic>>? comissaoSnap;
 
@@ -312,6 +409,28 @@ class PagamentoRepository {
         if (comissaoId.isNotEmpty) {
           comissaoRef = _comissoes.doc(comissaoId);
           comissaoSnap = await tx.get(comissaoRef);
+        }
+
+        final ids = bruto['pacotesClientesIds'];
+        if (ids is List) {
+          for (final id in ids) {
+            final ref = _pacotesClientes.doc(id.toString());
+            final snap = await tx.get(ref);
+            if (!snap.exists) continue;
+
+            final d = snap.data() ?? <String, dynamic>{};
+            if (d['status'] == 'cancelado') continue;
+
+            final usos = (d['usosTotal'] as num?)?.toInt() ?? 0;
+            if (usos > 0) {
+              throw Exception(
+                'Este estorno cancelaria o pacote de '
+                '${(d['clienteNome'] ?? '').toString()}, que já tem '
+                '$usos uso(s) lançado(s). Não é possível estornar.',
+              );
+            }
+            pacotesCancelar.add(ref);
+          }
         }
       }
 
@@ -337,6 +456,7 @@ class PagamentoRepository {
         campos['finalizadaEm'] = FieldValue.delete();
         campos['finalizadaDia'] = FieldValue.delete();
         campos['comissaoAtualId'] = FieldValue.delete();
+        campos['pacotesClientesIds'] = FieldValue.delete();
       }
 
       tx.update(comandaRef, campos);
@@ -349,6 +469,17 @@ class PagamentoRepository {
           'status': 'estornada',
           'estornadaEm': FieldValue.serverTimestamp(),
           'estornadaPorUid': perfil.uid,
+        });
+      }
+
+      for (final ref in pacotesCancelar) {
+        tx.update(ref, {
+          'status': 'cancelado',
+          'canceladoPorUid': perfil.uid,
+          'canceladoPorNome': perfil.nome,
+          'canceladoEm': FieldValue.serverTimestamp(),
+          'motivoCancelamento': 'Estorno do pagamento da venda',
+          'atualizadoEm': FieldValue.serverTimestamp(),
         });
       }
 
