@@ -8,6 +8,7 @@ import '../widgets/cartao_autorizacoes.dart';
 import '../widgets/cartao_vales.dart';
 import '../widgets/indicador_comandas_abertas.dart';
 import '../widgets/indicador_entradas_dia.dart';
+import '../widgets/resumo_pacotes.dart';
 import 'caixa/caixa_screen.dart';
 import 'catalogo/catalogo_screen.dart';
 import 'clientes/clientes_screen.dart';
@@ -113,6 +114,9 @@ class PainelScreen extends StatelessWidget {
               ],
               const SizedBox(height: 14),
               const AniversariantesCard(),
+              if (perfil.pode('ver_caixa')) 
+              const CartaoPacotesCaixa(),
+              const CartaoPacotesVencendo(),
               const SizedBox(height: 28),
               const TextoSecao(titulo: 'GESTÃO DA BARBEARIA'),
               const SizedBox(height: 13),
