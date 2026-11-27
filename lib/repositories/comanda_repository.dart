@@ -6,8 +6,12 @@ import '../models/perfil_usuario.dart';
 import '../models/produto.dart';
 import '../models/servico.dart';
 import '../utils/datas.dart';
-import '../utils/dinheiro.dart';
 import '../utils/percentual.dart';
+import '../utils/totais_comanda.dart';
+import 'pacote_uso_repository.dart';
+
+part 'comanda_repository_desconto.dart';
+part 'comanda_repository_produtos.dart';
 
 class ComandaRepository {
   ComandaRepository({FirebaseFirestore? firestore})
@@ -102,6 +106,8 @@ class ComandaRepository {
         'descontoSolicitadoBp': 0,
         'totalCentavos': 0,
         'pagoCentavos': 0,
+        'valorUsosCentavos': 0,
+        'coberta': false,
         'criadoEm': FieldValue.serverTimestamp(),
         'atualizadoEm': FieldValue.serverTimestamp(),
       });
@@ -110,37 +116,13 @@ class ComandaRepository {
     return novaRef.id;
   }
 
-  /// Recalcula subtotais, desconto (só sobre serviços) e total.
-  /// O total nunca pode ficar abaixo do que já foi pago.
   Map<String, dynamic> _camposAtualizados(
     List<ItemComanda> servicos,
     List<ItemProduto> produtos,
     int descontoBp,
     int pagoCentavos,
   ) {
-    final subServicos = servicos.fold<int>(0, (s, i) => s + i.precoCentavos);
-    final subProdutos = produtos.fold<int>(0, (s, i) => s + i.totalCentavos);
-    final desconto = (subServicos * descontoBp + 5000) ~/ 10000;
-    final total = subServicos + subProdutos - desconto;
-
-    if (total < pagoCentavos) {
-      throw Exception(
-        'O total da comanda não pode ficar menor que o valor já pago '
-        '(${Dinheiro.formatar(pagoCentavos)}). Peça ao administrador para '
-        'estornar o pagamento.',
-      );
-    }
-
-    return {
-      'servicos': servicos.map((i) => i.paraMapa()).toList(),
-      'produtos': produtos.map((i) => i.paraMapa()).toList(),
-      'subtotalServicosCentavos': subServicos,
-      'subtotalProdutosCentavos': subProdutos,
-      'descontoBp': descontoBp,
-      'descontoCentavos': desconto,
-      'totalCentavos': total,
-      'atualizadoEm': FieldValue.serverTimestamp(),
-    };
+    return camposTotais(servicos, produtos, descontoBp, pagoCentavos);
   }
 
   Future<void> _alterar(
@@ -184,8 +166,22 @@ class ComandaRepository {
     );
   }
 
-  Future<void> removerServico(String comandaId, String itemId) {
-    return _alterar(comandaId, (c) {
+  /// Remover um uso de pacote devolve o uso ao pacote.
+  Future<void> removerServico(String comandaId, String itemId) async {
+    final snap = await _col.doc(comandaId).get();
+
+    if (snap.exists) {
+      final c = Comanda.doDocumento(snap);
+      final alvo = c.servicos.where((i) => i.id == itemId).toList();
+
+      if (alvo.isNotEmpty && alvo.first.ehUso) {
+        await PacoteUsoRepository(firestore: _firestore)
+            .removerUso(comandaId, itemId);
+        return;
+      }
+    }
+
+    await _alterar(comandaId, (c) {
       final servicos = c.servicos.where((i) => i.id != itemId).toList();
       return _camposAtualizados(
         servicos,
@@ -217,252 +213,10 @@ class ComandaRepository {
     });
   }
 
-  // ---------------- Desconto ----------------
-
-  /// Aplica o desconto na hora. O colaborador só pode até o limite livre
-  /// ou o percentual já autorizado; o administrador pode qualquer valor.
-  Future<void> aplicarDesconto(
-    String comandaId,
-    int bp,
-    PerfilUsuario perfil,
-  ) {
-    return _alterar(comandaId, (c) {
-      if (bp < 0 || bp > 10000) {
-        throw Exception('Percentual de desconto inválido.');
-      }
-      if (bp > 0 && c.servicos.isEmpty) {
-        throw Exception('Adicione um serviço antes de aplicar desconto.');
-      }
-
-      final admin = perfil.permissaoTotal;
-      final liberado =
-          bp <= limiteDescontoSemAutorizacaoBp || bp <= c.descontoAprovadoBp;
-
-      if (!admin && !liberado) {
-        throw Exception(
-          'Desconto acima de ${bpParaTexto(limiteDescontoSemAutorizacaoBp)} '
-          'precisa de autorização do administrador.',
-        );
-      }
-
-      final campos =
-          _camposAtualizados(c.servicos, c.produtos, bp, c.pagoCentavos);
-
-      if (admin &&
-          bp > limiteDescontoSemAutorizacaoBp &&
-          bp > c.descontoAprovadoBp) {
-        campos['descontoAprovadoBp'] = bp;
-        campos['descontoStatus'] = 'aprovado';
-        campos['descontoDecididoPorUid'] = perfil.uid;
-        campos['descontoDecididoPorNome'] = perfil.nome;
-        campos['descontoDecididoEm'] = FieldValue.serverTimestamp();
-      }
-
-      return campos;
-    });
-  }
-
-  /// Pede autorização ao administrador para um desconto acima do limite.
-  Future<void> solicitarDesconto(
-    String comandaId,
-    int bp,
-    PerfilUsuario perfil,
-  ) {
-    return _alterar(comandaId, (c) {
-      if (bp <= limiteDescontoSemAutorizacaoBp || bp > 10000) {
-        throw Exception('Pedido de autorização inválido.');
-      }
-      if (c.servicos.isEmpty) {
-        throw Exception('Adicione um serviço antes de pedir desconto.');
-      }
-
-      return <String, dynamic>{
-        'descontoStatus': 'pendente',
-        'descontoSolicitadoBp': bp,
-        'descontoSolicitadoPorNome': perfil.nome,
-        'atualizadoEm': FieldValue.serverTimestamp(),
-      };
-    });
-  }
-
-  Future<void> cancelarSolicitacao(String comandaId) {
-    return _alterar(comandaId, (c) {
-      if (!c.descontoPendente) return <String, dynamic>{};
-      return <String, dynamic>{
-        'descontoStatus': '',
-        'descontoSolicitadoBp': 0,
-        'atualizadoEm': FieldValue.serverTimestamp(),
-      };
-    });
-  }
-
-  /// Só o administrador decide (e o Firebase também exige isso).
-  Future<void> decidirDesconto(
-    String comandaId,
-    bool aprovar,
-    PerfilUsuario perfil,
-  ) {
-    if (!perfil.permissaoTotal) {
-      return Future.error(
-        Exception('Somente o administrador pode autorizar descontos.'),
-      );
-    }
-
-    return _alterar(comandaId, (c) {
-      if (!c.descontoPendente) {
-        throw Exception('Não há pedido pendente nesta comanda.');
-      }
-
-      final decisao = <String, dynamic>{
-        'descontoDecididoPorUid': perfil.uid,
-        'descontoDecididoPorNome': perfil.nome,
-        'descontoDecididoEm': FieldValue.serverTimestamp(),
-      };
-
-      if (!aprovar) {
-        return <String, dynamic>{
-          ...decisao,
-          'descontoStatus': 'recusado',
-          'atualizadoEm': FieldValue.serverTimestamp(),
-        };
-      }
-
-      final bp = c.descontoSolicitadoBp;
-
-      return <String, dynamic>{
-        ..._camposAtualizados(c.servicos, c.produtos, bp, c.pagoCentavos),
-        ...decisao,
-        'descontoStatus': 'aprovado',
-        'descontoAprovadoBp': bp,
-      };
-    });
-  }
-
-  // ---------------- Produtos ----------------
-
-  void _validarEstoque(Produto p, int desejada) {
-    if (!p.ativo) throw Exception('Este produto está desativado.');
-    if (p.estoqueQtd <= 0) throw Exception('Produto sem estoque.');
-    if (desejada > p.estoqueQtd) {
-      throw Exception(
-        'Estoque insuficiente: há apenas ${p.estoqueQtd} '
-        'unidade(s) de ${p.nome}.',
-      );
-    }
-  }
-
-  /// O estoque NÃO é alterado aqui: a baixa acontece só no pagamento final.
-  Future<void> adicionarProduto(String comandaId, Produto p) async {
-    await _firestore.runTransaction((tx) async {
-      final comandaRef = _col.doc(comandaId);
-      final produtoRef = _produtos.doc(p.id);
-
-      final comandaSnap = await tx.get(comandaRef);
-      final produtoSnap = await tx.get(produtoRef);
-
-      if (!comandaSnap.exists) throw Exception('Comanda não encontrada.');
-      if (!produtoSnap.exists) throw Exception('Produto não encontrado.');
-
-      final c = Comanda.doDocumento(comandaSnap);
-      final atual = Produto.doDocumento(produtoSnap);
-
-      if (!c.aberta) throw Exception('Esta comanda não está mais aberta.');
-
-      final produtos = [...c.produtos];
-      final indice = produtos.indexWhere((x) => x.produtoId == atual.id);
-      final quantidadeAtual = indice >= 0 ? produtos[indice].quantidade : 0;
-
-      _validarEstoque(atual, quantidadeAtual + 1);
-
-      if (indice >= 0) {
-        produtos[indice] =
-            produtos[indice].comQuantidade(quantidadeAtual + 1);
-      } else {
-        produtos.add(
-          ItemProduto(
-            id: _col.doc().id,
-            produtoId: atual.id,
-            nome: atual.nome,
-            precoCentavos: atual.precoVendaCentavos,
-            quantidade: 1,
-          ),
-        );
-      }
-
-      tx.update(
-        comandaRef,
-        _camposAtualizados(
-          c.servicos,
-          produtos,
-          c.descontoBp,
-          c.pagoCentavos,
-        ),
-      );
-    });
-  }
-
-  /// Aumentar a quantidade exige estoque suficiente; diminuir é sempre livre.
-  Future<void> alterarQuantidadeProduto(
-    String comandaId,
-    String itemId,
-    int quantidade,
-  ) async {
-    await _firestore.runTransaction((tx) async {
-      final comandaRef = _col.doc(comandaId);
-      final comandaSnap = await tx.get(comandaRef);
-
-      if (!comandaSnap.exists) throw Exception('Comanda não encontrada.');
-
-      final c = Comanda.doDocumento(comandaSnap);
-      if (!c.aberta) throw Exception('Esta comanda não está mais aberta.');
-
-      final indice = c.produtos.indexWhere((i) => i.id == itemId);
-      if (indice < 0) throw Exception('Produto não encontrado na comanda.');
-
-      final item = c.produtos[indice];
-
-      if (quantidade > item.quantidade) {
-        final produtoSnap = await tx.get(_produtos.doc(item.produtoId));
-        if (!produtoSnap.exists) throw Exception('Produto não encontrado.');
-        _validarEstoque(Produto.doDocumento(produtoSnap), quantidade);
-      }
-
-      final produtos = <ItemProduto>[];
-      for (final i in c.produtos) {
-        if (i.id != itemId) {
-          produtos.add(i);
-        } else if (quantidade >= 1) {
-          produtos.add(i.comQuantidade(quantidade));
-        }
-      }
-
-      tx.update(
-        comandaRef,
-        _camposAtualizados(
-          c.servicos,
-          produtos,
-          c.descontoBp,
-          c.pagoCentavos,
-        ),
-      );
-    });
-  }
-
-  Future<void> removerProduto(String comandaId, String itemId) {
-    return _alterar(
-      comandaId,
-      (c) => _camposAtualizados(
-        c.servicos,
-        c.produtos.where((i) => i.id != itemId).toList(),
-        c.descontoBp,
-        c.pagoCentavos,
-      ),
-    );
-  }
-
   // ---------------- Cancelamento ----------------
 
-  /// Cancela sem apagar: o histórico fica registrado.
+  /// Cancela sem apagar: o histórico fica registrado. Os usos de pacote
+  /// lançados na comanda são devolvidos aos pacotes.
   Future<void> cancelar(
     String id,
     PerfilUsuario perfil, {
@@ -483,6 +237,11 @@ class ComandaRepository {
         );
       }
 
+      final usos = c.servicos.where((i) => i.ehUso).toList();
+      final escritas = usos.isEmpty
+          ? <Escrita>[]
+          : await prepararLiberacoes(tx, _firestore, usos);
+
       tx.update(ref, {
         'status': 'cancelada',
         'motivoCancelamento': motivo,
@@ -490,6 +249,10 @@ class ComandaRepository {
         'canceladoEm': FieldValue.serverTimestamp(),
         'atualizadoEm': FieldValue.serverTimestamp(),
       });
+
+      for (final e in escritas) {
+        e(tx);
+      }
     });
   }
 }
