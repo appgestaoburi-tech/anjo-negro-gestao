@@ -4,9 +4,11 @@ import '../../models/comanda.dart';
 import '../../models/pacote.dart';
 import '../../models/perfil_usuario.dart';
 import '../../repositories/pacote_repository.dart';
+import '../../repositories/pacote_uso_repository.dart';
 import '../../repositories/pacote_venda_repository.dart';
 import '../../utils/dinheiro.dart';
 import '../../utils/erros.dart';
+import 'cartao_uso_pacote.dart';
 
 class SecaoPacotesComanda extends StatelessWidget {
   final Comanda comanda;
@@ -17,6 +19,12 @@ class SecaoPacotesComanda extends StatelessWidget {
     required this.comanda,
     required this.perfil,
   });
+
+  void _aviso(BuildContext context, String texto) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(texto)),
+    );
+  }
 
   Future<void> _vender(BuildContext context) async {
     final pacote = await showModalBottomSheet<Pacote>(
@@ -32,38 +40,116 @@ class SecaoPacotesComanda extends StatelessWidget {
       await PacoteVendaRepository().adicionarNaComanda(comanda.id, pacote);
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(mensagemDeErro(e))),
-      );
+      _aviso(context, mensagemDeErro(e));
     }
+  }
+
+  Future<void> _finalizar(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: cartao,
+        title: const Text(
+          'Finalizar atendimento',
+          style: TextStyle(color: dourado),
+        ),
+        content: const Text(
+          'Os usos do pacote serão confirmados e a comissão será '
+          'registrada. Não há valor a cobrar do cliente.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('VOLTAR'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: dourado,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('FINALIZAR'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true || !context.mounted) return;
+
+    try {
+      await PacoteUsoRepository().finalizarCoberta(comanda.id, perfil);
+      if (!context.mounted) return;
+      _aviso(context, 'Atendimento finalizado.');
+    } catch (e) {
+      if (!context.mounted) return;
+      _aviso(context, mensagemDeErro(e));
+    }
+  }
+
+  Future<void> _reabrir(BuildContext context) async {
+    try {
+      await PacoteUsoRepository().reabrirCoberta(comanda.id, perfil);
+      if (!context.mounted) return;
+      _aviso(context, 'Atendimento reaberto.');
+    } catch (e) {
+      if (!context.mounted) return;
+      _aviso(context, mensagemDeErro(e));
+    }
+  }
+
+  Widget _titulo() {
+    return const Padding(
+      padding: EdgeInsets.only(top: 24, bottom: 10),
+      child: Text(
+        'PACOTES',
+        style: TextStyle(
+          color: dourado,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 2,
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!comanda.aberta) return const SizedBox.shrink();
+    final c = comanda;
 
-    final temCliente = comanda.clienteId.isNotEmpty;
+    // Atendimento finalizado sem cobrança: o administrador pode reabrir.
+    if (!c.aberta) {
+      if (c.status == 'paga' && c.coberta && perfil.permissaoTotal) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _titulo(),
+            OutlinedButton.icon(
+              onPressed: () => _reabrir(context),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.orangeAccent,
+                side: const BorderSide(color: Colors.orangeAccent),
+              ),
+              icon: const Icon(Icons.lock_open),
+              label: const Text('REABRIR ATENDIMENTO'),
+            ),
+          ],
+        );
+      }
+      return const SizedBox.shrink();
+    }
+
+    final temCliente = c.clienteId.isNotEmpty;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(height: 24),
-        const Text(
-          'PACOTES',
-          style: TextStyle(
-            color: dourado,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 2,
-          ),
-        ),
-        const SizedBox(height: 10),
+        _titulo(),
         if (!temCliente)
           const Text(
-            'Para vender pacote, abra a comanda escolhendo um cliente '
-            'cadastrado.',
+            'Para vender pacote ou usar o pacote de um cliente, abra a '
+            'comanda escolhendo um cliente cadastrado.',
             style: TextStyle(color: Colors.white54),
           )
-        else
+        else ...[
           SizedBox(
             width: double.infinity,
             height: 50,
@@ -83,6 +169,30 @@ class SecaoPacotesComanda extends StatelessWidget {
               ),
             ),
           ),
+          CartaoUsoPacote(comanda: c, perfil: perfil),
+        ],
+        if (c.coberta) ...[
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: ElevatedButton.icon(
+              onPressed: () => _finalizar(context),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: dourado,
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              icon: const Icon(Icons.check_circle_outline),
+              label: const Text(
+                'FINALIZAR ATENDIMENTO (PACOTE)',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
