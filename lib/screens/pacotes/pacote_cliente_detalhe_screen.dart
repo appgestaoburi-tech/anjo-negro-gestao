@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../config/tema.dart';
 import '../../models/pacote_cliente.dart';
+import '../../models/uso_pacote.dart';
 import '../../repositories/pacote_cliente_repository.dart';
 import '../../utils/datas.dart';
 import '../../utils/dinheiro.dart';
@@ -65,78 +66,72 @@ class PacoteClienteDetalheScreen extends StatelessWidget {
     );
   }
 
-  Widget _conteudo(PacoteCliente p) {
+  Widget _resumo(PacoteCliente p, String situacao) {
+    final ultimoDia = p.fimData.subtract(const Duration(days: 1));
+
+    return _cartao(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            p.clienteNome,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+          ),
+          if (p.clienteTelefone.isNotEmpty)
+            Text(
+              p.telefoneFormatado,
+              style: const TextStyle(color: Colors.white70),
+            ),
+          const SizedBox(height: 8),
+          Text(
+            '${p.nome} • ${PacoteCliente.rotuloSituacao(situacao)}',
+            style: const TextStyle(
+              color: dourado,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _linha(
+            'Validade',
+            '${formatarDia(p.inicioData)} a ${formatarDia(ultimoDia)}',
+          ),
+          _linha('Valor pago', Dinheiro.formatar(p.precoPagoCentavos)),
+          if (p.precoTabelaCentavos > p.precoPagoCentavos)
+            _linha(
+              'Desconto dado',
+              Dinheiro.formatar(p.precoTabelaCentavos - p.precoPagoCentavos),
+              cor: Colors.orangeAccent,
+            ),
+          _linha('Valor de cada uso', Dinheiro.formatar(p.valorUsoCentavos)),
+          _linha('Usos feitos', '${p.usosTotal} de ${p.totalUsos}'),
+          _linha(
+            'Serviços a prestar',
+            Dinheiro.formatar(p.aPrestarCentavos),
+            cor: dourado,
+          ),
+          _linha(
+            'Vendido na comanda',
+            '#${p.comandaVendaNumero} por ${p.vendidoPorNome}',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _saldos(PacoteCliente p) {
     final agora = DateTime.now();
     final hoje = DateTime(agora.year, agora.month, agora.day);
-    final situacao = p.situacao(agora);
 
     var ciclo = cicloDe(p.inicioData, hoje);
     if (ciclo >= p.meses) ciclo = p.meses - 1;
 
     final cicloIni = somarMeses(p.inicioData, ciclo);
-    final cicloFimExcl = somarMeses(p.inicioData, ciclo + 1);
-    final cicloFim = DateTime(
-      cicloFimExcl.year,
-      cicloFimExcl.month,
-      cicloFimExcl.day - 1,
-    );
-    final ultimoDia = p.fimData.subtract(const Duration(days: 1));
+    final fimExcl = somarMeses(p.inicioData, ciclo + 1);
+    final cicloFim = DateTime(fimExcl.year, fimExcl.month, fimExcl.day - 1);
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _cartao(
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                p.clienteNome,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 20,
-                ),
-              ),
-              if (p.clienteTelefone.isNotEmpty)
-                Text(
-                  p.telefoneFormatado,
-                  style: const TextStyle(color: Colors.white70),
-                ),
-              const SizedBox(height: 8),
-              Text(
-                '${p.nome} • ${PacoteCliente.rotuloSituacao(situacao)}',
-                style: const TextStyle(
-                  color: dourado,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              _linha(
-                'Validade',
-                '${formatarDia(p.inicioData)} a ${formatarDia(ultimoDia)}',
-              ),
-              _linha('Valor pago', Dinheiro.formatar(p.precoPagoCentavos)),
-              if (p.precoTabelaCentavos > p.precoPagoCentavos)
-                _linha(
-                  'Desconto dado',
-                  Dinheiro.formatar(
-                    p.precoTabelaCentavos - p.precoPagoCentavos,
-                  ),
-                  cor: Colors.orangeAccent,
-                ),
-              _linha('Valor de cada uso', Dinheiro.formatar(p.valorUsoCentavos)),
-              _linha('Usos feitos', '${p.usosTotal} de ${p.totalUsos}'),
-              _linha(
-                'Serviços a prestar',
-                Dinheiro.formatar(p.aPrestarCentavos),
-                cor: dourado,
-              ),
-              _linha(
-                'Vendido na comanda',
-                '#${p.comandaVendaNumero} por ${p.vendidoPorNome}',
-              ),
-            ],
-          ),
-        ),
         _titulo('SALDO POR SERVIÇO'),
         Text(
           'Mês atual do pacote: ${formatarDia(cicloIni)} a '
@@ -168,13 +163,77 @@ class PacoteClienteDetalheScreen extends StatelessWidget {
               ],
             ),
           ),
-        _titulo('HISTÓRICO DE USOS'),
-        const Text(
-          'Os usos lançados nas comandas aparecerão aqui (próxima etapa).',
-          style: TextStyle(color: Colors.white54, fontSize: 13),
-        ),
-        const SizedBox(height: 20),
       ],
+    );
+  }
+
+  Widget _historico(String pacoteId) {
+    return StreamBuilder<List<UsoPacote>>(
+      stream: _repo.observarUsos(pacoteId),
+      builder: (context, snapshot) {
+        final usos = snapshot.data ?? const <UsoPacote>[];
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _titulo('HISTÓRICO DE USOS'),
+            if (usos.isEmpty)
+              const Text(
+                'Nenhum uso lançado ainda.',
+                style: TextStyle(color: Colors.white54, fontSize: 13),
+              ),
+            for (final u in usos)
+              Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: cartao,
+                  borderRadius: BorderRadius.circular(13),
+                  border: Border.all(color: bordaCartao),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            u.servicoNome,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: u.cancelado
+                                  ? Colors.white38
+                                  : Colors.white,
+                              decoration: u.cancelado
+                                  ? TextDecoration.lineThrough
+                                  : null,
+                            ),
+                          ),
+                          Text(
+                            '${formatarDiaIso(u.dia)} • ${u.barbeiroNome} • '
+                            'comanda #${u.comandaNumero}'
+                            '${u.cancelado ? ' • cancelado' : ''}',
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Text(
+                      Dinheiro.formatar(u.valorUsoCentavos),
+                      style: TextStyle(
+                        color: u.cancelado ? Colors.white38 : dourado,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 
@@ -197,7 +256,15 @@ class PacoteClienteDetalheScreen extends StatelessWidget {
             return const Center(child: Text('Pacote não encontrado.'));
           }
 
-          return _conteudo(p);
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              _resumo(p, p.situacao(DateTime.now())),
+              _saldos(p),
+              _historico(p.id),
+              const SizedBox(height: 20),
+            ],
+          );
         },
       ),
     );
