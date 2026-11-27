@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/comanda.dart';
 import '../models/pacote.dart';
+import '../utils/totais_comanda.dart';
 
 class PacoteVendaRepository {
   PacoteVendaRepository({FirebaseFirestore? firestore})
@@ -53,18 +54,15 @@ class PacoteVendaRepository {
         },
       );
 
-      final lista = [...c.servicos, linha];
-      final subServicos = lista.fold<int>(0, (s, i) => s + i.precoCentavos);
-      final desconto = (subServicos * c.descontoBp + 5000) ~/ 10000;
-      final total = subServicos + c.subtotalProdutosCentavos - desconto;
-
-      tx.update(comandaRef, {
-        'servicos': lista.map((i) => i.paraMapa()).toList(),
-        'subtotalServicosCentavos': subServicos,
-        'descontoCentavos': desconto,
-        'totalCentavos': total,
-        'atualizadoEm': FieldValue.serverTimestamp(),
-      });
+      tx.update(
+        comandaRef,
+        camposTotais(
+          [...c.servicos, linha],
+          c.produtos,
+          c.descontoBp,
+          c.pagoCentavos,
+        ),
+      );
     });
   }
 }
